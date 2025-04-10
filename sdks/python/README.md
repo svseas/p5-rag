@@ -1,18 +1,18 @@
-# DataBridge
+# Morphik
 
-A Python client for DataBridge API that enables document ingestion and semantic search capabilities.
+A Python client for Morphik API that enables document ingestion and semantic search capabilities.
 
 ## Installation
 
 ```bash
-pip install databridge-client
+pip install morphik
 ```
 
 ```python
-from databridge import DataBridge
+from morphik import Morphik
 
 # Initialize client
-db = DataBridge("your-api-key")
+db = Morphik("your-api-key")
 
 # Ingest a document
 doc_id = await db.ingest_document(

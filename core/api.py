@@ -9,8 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import jwt
 import logging
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from core.completion.openai_completion import OpenAICompletionModel
-from core.embedding.ollama_embedding_model import OllamaEmbeddingModel
 from core.limits_utils import check_and_increment_limits
 from core.models.request import GenerateUriRequest, RetrieveRequest, CompletionQueryRequest, IngestTextRequest, CreateGraphRequest, UpdateGraphRequest, BatchIngestResponse
 from core.models.completion import ChunkSource, CompletionResponse
@@ -18,7 +16,7 @@ from core.models.documents import Document, DocumentResult, ChunkResult
 from core.models.graph import Graph
 from core.models.auth import AuthContext, EntityType
 from core.models.prompts import validate_prompt_overrides_with_http_exception
-from core.parser.databridge_parser import DatabridgeParser
+from core.parser.morphik_parser import MorphikParser
 from core.services.document_service import DocumentService
 from core.services.telemetry import TelemetryService
 from core.config import get_settings
@@ -29,14 +27,12 @@ from core.vector_store.multi_vector_store import MultiVectorStore
 from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
 from core.storage.s3_storage import S3Storage
 from core.storage.local_storage import LocalStorage
-from core.embedding.openai_embedding_model import OpenAIEmbeddingModel
-from core.completion.ollama_completion import OllamaCompletionModel
 from core.reranker.flag_reranker import FlagReranker
 from core.cache.llama_cache_factory import LlamaCacheFactory
 import tomli
 
 # Initialize FastAPI app
-app = FastAPI(title="DataBridge API")
+app = FastAPI(title="Morphik API")
 logger = logging.getLogger(__name__)
 
 
@@ -113,15 +109,30 @@ async def initialize_database():
 @app.on_event("startup")
 async def initialize_vector_store():
     """Initialize vector store tables and indexes on application startup."""
-    logger.info("Initializing vector store...")
+    # First initialize the primary vector store (PGVectorStore if using pgvector)
+    logger.info("Initializing primary vector store...")
     if hasattr(vector_store, 'initialize'):
         success = await vector_store.initialize()
         if success:
-            logger.info("Vector store initialization successful")
+            logger.info("Primary vector store initialization successful")
         else:
-            logger.error("Vector store initialization failed")
+            logger.error("Primary vector store initialization failed")
     else:
-        logger.warning("Vector store does not have an initialize method")
+        logger.warning("Primary vector store does not have an initialize method")
+    
+    # Then initialize the multivector store if enabled
+    if settings.ENABLE_COLPALI and colpali_vector_store:
+        logger.info("Initializing multivector store...")
+        # Handle both synchronous and asynchronous initialize methods
+        if hasattr(colpali_vector_store.initialize, '__awaitable__'):
+            success = await colpali_vector_store.initialize()
+        else:
+            success = colpali_vector_store.initialize()
+            
+        if success:
+            logger.info("Multivector store initialization successful")
+        else:
+            logger.error("Multivector store initialization failed")
 
 # Initialize vector store
 match settings.VECTOR_STORE_PROVIDER:
@@ -160,7 +171,7 @@ match settings.STORAGE_PROVIDER:
         raise ValueError(f"Unsupported storage provider: {settings.STORAGE_PROVIDER}")
 
 # Initialize parser
-parser = DatabridgeParser(
+parser = MorphikParser(
     chunk_size=settings.CHUNK_SIZE,
     chunk_overlap=settings.CHUNK_OVERLAP,
     use_unstructured_api=settings.USE_UNSTRUCTURED_API,
@@ -171,37 +182,24 @@ parser = DatabridgeParser(
 )
 
 # Initialize embedding model
-match settings.EMBEDDING_PROVIDER:
-    case "ollama":
-        embedding_model = OllamaEmbeddingModel(
-            base_url=settings.EMBEDDING_OLLAMA_BASE_URL,
-            model_name=settings.EMBEDDING_MODEL,
-        )
-    case "openai":
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OpenAI API key is required for OpenAI embedding model")
-        embedding_model = OpenAIEmbeddingModel(
-            api_key=settings.OPENAI_API_KEY,
-            model_name=settings.EMBEDDING_MODEL,
-        )
-    case _:
-        raise ValueError(f"Unsupported embedding provider: {settings.EMBEDDING_PROVIDER}")
+# Import here to avoid circular imports
+from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
+
+# Create a LiteLLM model using the registered model config
+embedding_model = LiteLLMEmbeddingModel(
+    model_key=settings.EMBEDDING_MODEL,
+)
+logger.info(f"Initialized LiteLLM embedding model with model key: {settings.EMBEDDING_MODEL}")
 
 # Initialize completion model
-match settings.COMPLETION_PROVIDER:
-    case "ollama":
-        completion_model = OllamaCompletionModel(
-            model_name=settings.COMPLETION_MODEL,
-            base_url=settings.COMPLETION_OLLAMA_BASE_URL,
-        )
-    case "openai":
-        if not settings.OPENAI_API_KEY:
-            raise ValueError("OpenAI API key is required for OpenAI completion model")
-        completion_model = OpenAICompletionModel(
-            model_name=settings.COMPLETION_MODEL,
-        )
-    case _:
-        raise ValueError(f"Unsupported completion provider: {settings.COMPLETION_PROVIDER}")
+# Import here to avoid circular imports
+from core.completion.litellm_completion import LiteLLMCompletionModel
+
+# Create a LiteLLM model using the registered model config
+completion_model = LiteLLMCompletionModel(
+    model_key=settings.COMPLETION_MODEL,
+)
+logger.info(f"Initialized LiteLLM completion model with model key: {settings.COMPLETION_MODEL}")
 
 # Initialize reranker
 reranker = None
@@ -1236,14 +1234,14 @@ async def generate_local_uri(
         token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
         # Read config for host/port
-        with open("databridge.toml", "rb") as f:
+        with open("morphik.toml", "rb") as f:
             config = tomli.load(f)
         base_url = f"{config['api']['host']}:{config['api']['port']}".replace(
             "localhost", "127.0.0.1"
         )
 
         # Generate URI
-        uri = f"databridge://{name}:{token}@{base_url}"
+        uri = f"morphik://{name}:{token}@{base_url}"
         return {"uri": uri}
     except Exception as e:
         logger.error(f"Error generating local URI: {e}")
