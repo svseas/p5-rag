@@ -1,11 +1,11 @@
 [api]
-host = "0.0.0.0"
+host = "127.0.0.1" # Needs to be "0.0.0.0" for docker
 port = 8000
 reload = true
 
 [auth]
 jwt_algorithm = "HS256"
-dev_mode = true  # Enabled by default for easier local development
+dev_mode = false  # Enabled by default for easier local development
 dev_entity_id = "dev_user"  # Default dev user ID
 dev_entity_type = "developer"  # Default dev entity type
 dev_permissions = ["read", "write", "admin"]  # Default dev permissions
@@ -38,7 +38,7 @@ ollama_embedding = { model_name = "ollama/nomic-embed-text", api_base = "http://
 #### Component configurations ####
 
 [completion]
-model = "ollama_llama"  # Reference to a key in registered_models
+model = "openai_gpt4o"  # Reference to a key in registered_models
 default_max_tokens = "1000"
 default_temperature = 0.5
 
@@ -46,19 +46,19 @@ default_temperature = 0.5
 provider = "postgres"
 
 [embedding]
-model = "ollama_embedding"  # Reference to registered model
-dimensions = 768
-similarity_metric = "cosine"
+model = "openai_embedding"  # Reference to registered model
+dimensions = 1536
+similarity_metric = "dotProduct"
 
 [parser]
 chunk_size = 1000
 chunk_overlap = 200
 use_unstructured_api = false
 use_contextual_chunking = false
-contextual_chunking_model = "ollama_llama"  # Reference to a key in registered_models
+contextual_chunking_model = "openai_gpt4o"  # Reference to a key in registered_models
 
 [parser.vision]
-model = "ollama_llama_vision"  # Reference to a key in registered_models
+model = "openai_gpt4o"  # Reference to a key in registered_models
 frame_sample_rate = -1  # Set to -1 to disable frame captioning
 
 [reranker]
@@ -68,30 +68,31 @@ model_name = "BAAI/bge-reranker-large"
 query_max_length = 256
 passage_max_length = 512
 use_fp16 = true
-device = "mps" # use "cpu" if on docker and using a mac, "cuda" if cuda enabled device
-
-[storage]
-provider = "local"
-storage_path = "./storage"
+device = "cpu" # use "cpu" if on docker and using a mac, "cuda" if cuda enabled device
 
 # [storage]
-# provider = "aws-s3"
-# region = "us-east-2"
-# bucket_name = "morphik-s3-storage"
+# provider = "local"
+# storage_path = "./storage"
+
+[storage]
+provider = "aws-s3"
+region = "us-east-2"
+bucket_name = "morphik-storage"
+storage_path = "morphik-storage"
 
 [vector_store]
 provider = "pgvector"
 
 [rules]
-model = "ollama_llama"
+model = "openai_gpt4o"
 batch_size = 4096
 
 [morphik]
 enable_colpali = true
-mode = "self_hosted"  # "cloud" or "self_hosted"
+mode = "cloud"  # "cloud" or "self_hosted"
 
 [graph]
-model = "ollama_llama"
+model = "openai_gpt4o"
 enable_entity_resolution = true
 
 [telemetry]
@@ -99,7 +100,7 @@ enabled = true
 honeycomb_enabled = true
 honeycomb_endpoint = "https://api.honeycomb.io"
 honeycomb_proxy_endpoint = "https://otel-proxy.onrender.com"
-service_name = "databridge-core"
+service_name = "databridge-core-hosted"
 otlp_timeout = 10
 otlp_max_retries = 3
 otlp_retry_delay = 1
