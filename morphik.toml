@@ -90,6 +90,7 @@ batch_size = 4096
 [morphik]
 enable_colpali = true
 mode = "cloud"  # "cloud" or "self_hosted"
+api_domain = "api.morphik.ai"  # API domain for cloud URIs
 
 [graph]
 model = "openai_gpt4o"
