@@ -13,7 +13,7 @@ dev_permissions = ["read", "write", "admin"]  # Default dev permissions
 #### Registered models
 [registered_models]
 # OpenAI models
-openai_gpt4o = { model_name = "gpt-4o" }
+openai_gpt4o = { model_name = "gpt-4o", vision = true }
 openai_gpt4 = { model_name = "gpt-4" }
 
 # Azure OpenAI models
