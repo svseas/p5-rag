@@ -111,6 +111,10 @@ enable_colpali = true
 mode = "cloud"  # "cloud" or "self_hosted"
 api_domain = "api.morphik.ai"  # API domain for cloud URIs
 
+[redis]
+host = "localhost"
+port = 6379
+
 [graph]
 model = "openai_gpt4o"
 enable_entity_resolution = true
