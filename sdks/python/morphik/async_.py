@@ -14,6 +14,7 @@ from .models import (
     IngestTextRequest,
     ChunkSource,
     Graph,
+    FolderInfo,
     # Prompt override models
     GraphPromptOverrides,
     QueryPromptOverrides,
@@ -56,16 +57,43 @@ class AsyncFolder:
     Args:
         client: The AsyncMorphik client instance
         name: The name of the folder
+        folder_id: Optional folder ID (if already known)
     """
 
-    def __init__(self, client: "AsyncMorphik", name: str):
+    def __init__(self, client: "AsyncMorphik", name: str, folder_id: Optional[str] = None):
         self._client = client
         self._name = name
+        self._id = folder_id
 
     @property
     def name(self) -> str:
         """Returns the folder name."""
         return self._name
+        
+    @property
+    def id(self) -> Optional[str]:
+        """Returns the folder ID if available."""
+        return self._id
+        
+    async def get_info(self) -> Dict[str, Any]:
+        """
+        Get detailed information about this folder.
+        
+        Returns:
+            Dict[str, Any]: Detailed folder information
+        """
+        if not self._id:
+            # If we don't have the ID, find the folder by name first
+            folders = await self._client.list_folders()
+            for folder in folders:
+                if folder.name == self._name:
+                    self._id = folder.id
+                    break
+            if not self._id:
+                raise ValueError(f"Folder '{self._name}' not found")
+        
+        return await self._client._request("GET", f"folders/{self._id}")
+        
 
     def signin(self, end_user_id: str) -> "AsyncUserScope":
         """
@@ -144,9 +172,10 @@ class AsyncFolder:
 
             response = await self._client._request(
                 "POST",
-                f"ingest/file?use_colpali={str(use_colpali).lower()}",
+                "ingest/file",
                 data=form_data,
                 files=files,
+                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._client._logic._parse_document_response(response)
             doc._client = self._client
@@ -187,7 +216,11 @@ class AsyncFolder:
             )
 
             response = await self._client._request(
-                "POST", "ingest/files", data=data, files=file_objects
+                "POST", 
+                "ingest/files", 
+                data=data, 
+                files=file_objects,
+                params={"use_colpali": str(use_colpali).lower()},
             )
 
             if response.get("errors"):
@@ -391,9 +424,10 @@ class AsyncFolder:
         Returns:
             List[Document]: List of document metadata for found documents
         """
-        request = self._client._logic._prepare_batch_get_documents_request(
-            document_ids, self._name, None
-        )
+        # API expects a dict with document_ids key
+        request = {"document_ids": document_ids}
+        if self._name:
+            request["folder_name"] = self._name
         response = await self._client._request("POST", "batch/documents", data=request)
         docs = self._client._logic._parse_document_list_response(response)
         for doc in docs:
@@ -673,7 +707,11 @@ class AsyncUserScope:
                 data["folder_name"] = self._folder_name
 
             response = await self._client._request(
-                "POST", "ingest/files", data=data, files=file_objects
+                "POST", 
+                "ingest/files", 
+                data=data, 
+                files=file_objects,
+                params={"use_colpali": str(use_colpali).lower()},
             )
 
             if response.get("errors"):
@@ -877,9 +915,12 @@ class AsyncUserScope:
         Returns:
             List[Document]: List of document metadata for found documents
         """
-        request = self._client._logic._prepare_batch_get_documents_request(
-            document_ids, self._folder_name, self._end_user_id
-        )
+        # API expects a dict with document_ids key
+        request = {"document_ids": document_ids}
+        if self._end_user_id:
+            request["end_user_id"] = self._end_user_id
+        if self._folder_name:
+            request["folder_name"] = self._folder_name
         response = await self._client._request("POST", "batch/documents", data=request)
         docs = self._client._logic._parse_document_list_response(response)
         for doc in docs:
@@ -1032,9 +1073,15 @@ class AsyncMorphik:
 
         # Configure request data based on type
         if files:
-            # Multipart form data for files
-            request_data = {"files": files, "data": data}
-            # Don't set Content-Type, let httpx handle it
+            # When uploading files, we need to make sure not to set Content-Type
+            # Remove Content-Type if it exists - httpx will set the correct multipart boundary
+            if "Content-Type" in headers:
+                del headers["Content-Type"]
+                
+            # For file uploads with form data, use form data (not json)
+            request_data = {"files": files}
+            if data:
+                request_data["data"] = data
         else:
             # JSON for everything else
             headers["Content-Type"] = "application/json"
@@ -1054,19 +1101,30 @@ class AsyncMorphik:
         """Convert a rule to a dictionary format"""
         return self._logic._convert_rule(rule)
 
-    def create_folder(self, name: str) -> AsyncFolder:
+    async def create_folder(self, name: str, description: Optional[str] = None) -> AsyncFolder:
         """
         Create a folder to scope operations.
 
         Args:
             name: The name of the folder
+            description: Optional description for the folder
 
         Returns:
-            AsyncFolder: A folder object for scoped operations
+            AsyncFolder: A folder object ready for scoped operations
         """
-        return AsyncFolder(self, name)
-
-    def get_folder(self, name: str) -> AsyncFolder:
+        payload = {
+            "name": name
+        }
+        if description:
+            payload["description"] = description
+            
+        response = await self._request("POST", "folders", data=payload)
+        folder_info = FolderInfo(**response)
+        
+        # Return a usable AsyncFolder object with the ID from the response
+        return AsyncFolder(self, name, folder_id=folder_info.id)
+    
+    def get_folder_by_name(self, name: str) -> AsyncFolder:
         """
         Get a folder by name to scope operations.
 
@@ -1077,6 +1135,57 @@ class AsyncMorphik:
             AsyncFolder: A folder object for scoped operations
         """
         return AsyncFolder(self, name)
+        
+    async def get_folder(self, folder_id: str) -> AsyncFolder:
+        """
+        Get a folder by ID.
+
+        Args:
+            folder_id: ID of the folder
+
+        Returns:
+            AsyncFolder: A folder object for scoped operations
+        """
+        response = await self._request("GET", f"folders/{folder_id}")
+        return AsyncFolder(self, response["name"], folder_id)
+        
+    async def list_folders(self) -> List[AsyncFolder]:
+        """
+        List all folders the user has access to as AsyncFolder objects.
+
+        Returns:
+            List[AsyncFolder]: List of AsyncFolder objects ready for operations
+        """
+        response = await self._request("GET", "folders")
+        return [AsyncFolder(self, folder["name"], folder["id"]) for folder in response]
+        
+    async def add_document_to_folder(self, folder_id: str, document_id: str) -> Dict[str, str]:
+        """
+        Add a document to a folder.
+
+        Args:
+            folder_id: ID of the folder
+            document_id: ID of the document
+
+        Returns:
+            Dict[str, str]: Success status
+        """
+        response = await self._request("POST", f"folders/{folder_id}/documents/{document_id}")
+        return response
+        
+    async def remove_document_from_folder(self, folder_id: str, document_id: str) -> Dict[str, str]:
+        """
+        Remove a document from a folder.
+
+        Args:
+            folder_id: ID of the folder
+            document_id: ID of the document
+
+        Returns:
+            Dict[str, str]: Success status
+        """
+        response = await self._request("DELETE", f"folders/{folder_id}/documents/{document_id}")
+        return response
 
     def signin(self, end_user_id: str) -> AsyncUserScope:
         """
@@ -1163,9 +1272,10 @@ class AsyncMorphik:
 
             response = await self._request(
                 "POST",
-                f"ingest/file?use_colpali={str(use_colpali).lower()}",
+                "ingest/file",
                 data=form_data,
                 files=files,
+                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._logic._parse_document_response(response)
             doc._client = self
@@ -1208,7 +1318,13 @@ class AsyncMorphik:
                 metadata, rules, use_colpali, parallel, None, None
             )
 
-            response = await self._request("POST", "ingest/files", data=data, files=file_objects)
+            response = await self._request(
+                "POST", 
+                "ingest/files", 
+                data=data, 
+                files=file_objects,
+                params={"use_colpali": str(use_colpali).lower()},
+            )
 
             if response.get("errors"):
                 # Log errors but don't raise exception
@@ -1216,7 +1332,7 @@ class AsyncMorphik:
                     logger.error(f"Failed to ingest {error['filename']}: {error['error']}")
 
             # Parse the documents from the response
-            docs = [self._client._logic._parse_document_response(doc) for doc in response["documents"]]
+            docs = [self._logic._parse_document_response(doc) for doc in response["documents"]]
             for doc in docs:
                 doc._client = self
             return docs
@@ -1935,7 +2051,8 @@ class AsyncMorphik:
                 print(f"Document {doc.external_id}: {doc.metadata.get('title')}")
             ```
         """
-        request = self._logic._prepare_batch_get_documents_request(document_ids, None, None)
+        # API expects a dict with document_ids key, not a direct list
+        request = {"document_ids": document_ids}
         response = await self._request("POST", "batch/documents", data=request)
         docs = self._logic._parse_document_list_response(response)
         for doc in docs:

@@ -16,6 +16,7 @@ from .models import (
     IngestTextRequest,
     ChunkSource,
     Graph,
+    FolderInfo,
     # Prompt override models
     GraphPromptOverrides,
     QueryPromptOverrides,
@@ -58,16 +59,43 @@ class Folder:
     Args:
         client: The Morphik client instance
         name: The name of the folder
+        folder_id: Optional folder ID (if already known)
     """
 
-    def __init__(self, client: "Morphik", name: str):
+    def __init__(self, client: "Morphik", name: str, folder_id: Optional[str] = None):
         self._client = client
         self._name = name
+        self._id = folder_id
 
     @property
     def name(self) -> str:
         """Returns the folder name."""
         return self._name
+        
+    @property
+    def id(self) -> Optional[str]:
+        """Returns the folder ID if available."""
+        return self._id
+        
+    def get_info(self) -> Dict[str, Any]:
+        """
+        Get detailed information about this folder.
+        
+        Returns:
+            Dict[str, Any]: Detailed folder information
+        """
+        if not self._id:
+            # If we don't have the ID, find the folder by name first
+            folders = self._client.list_folders()
+            for folder in folders:
+                if folder.name == self._name:
+                    self._id = folder.id
+                    break
+            if not self._id:
+                raise ValueError(f"Folder '{self._name}' not found")
+        
+        return self._client._request("GET", f"folders/{self._id}")
+        
 
     def signin(self, end_user_id: str) -> "UserScope":
         """
@@ -144,11 +172,13 @@ class Folder:
                 metadata, rules, self._name, None
             )
 
+            # use_colpali should be a query parameter as defined in the API
             response = self._client._request(
                 "POST",
-                f"ingest/file?use_colpali={str(use_colpali).lower()}",
+                "ingest/file",
                 data=form_data,
                 files=files,
+                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._client._logic._parse_document_response(response)
             doc._client = self._client
@@ -188,7 +218,13 @@ class Folder:
                 metadata, rules, use_colpali, parallel, self._name, None
             )
 
-            response = self._client._request("POST", "ingest/files", data=data, files=file_objects)
+            response = self._client._request(
+                "POST", 
+                "ingest/files", 
+                data=data, 
+                files=file_objects,
+                params={"use_colpali": str(use_colpali).lower()},
+            )
 
             if response.get("errors"):
                 # Log errors but don't raise exception
@@ -641,12 +677,14 @@ class UserScope:
             # Add folder name if scoped to a folder
             if self._folder_name:
                 form_data["folder_name"] = self._folder_name
-
+                
+            # use_colpali should be a query parameter as defined in the API
             response = self._client._request(
                 "POST",
-                f"ingest/file?use_colpali={str(use_colpali).lower()}",
+                "ingest/file",
                 data=form_data,
                 files=files,
+                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._client._logic._parse_document_response(response)
             doc._client = self._client
@@ -706,7 +744,7 @@ class UserScope:
             data = {
                 "metadata": json.dumps(metadata or {}),
                 "rules": json.dumps(converted_rules),
-                "use_colpali": str(use_colpali).lower() if use_colpali is not None else None,
+                # Remove use_colpali from form data - it should be a query param
                 "parallel": str(parallel).lower(),
                 "end_user_id": self._end_user_id,  # Add end user ID here
             }
@@ -715,7 +753,13 @@ class UserScope:
             if self._folder_name:
                 data["folder_name"] = self._folder_name
 
-            response = self._client._request("POST", "ingest/files", data=data, files=file_objects)
+            response = self._client._request(
+                "POST", 
+                "ingest/files", 
+                data=data, 
+                files=file_objects,
+                params={"use_colpali": str(use_colpali).lower()},
+            )
 
             if response.get("errors"):
                 # Log errors but don't raise exception
@@ -1125,9 +1169,17 @@ class Morphik:
 
         # Configure request data based on type
         if files:
-            # Multipart form data for files
-            request_data = {"files": files, "data": data}
-            # Don't set Content-Type, let httpx handle it
+            # When uploading files, we need to make sure not to set Content-Type
+            # Remove Content-Type if it exists - httpx will set the correct multipart boundary
+            if "Content-Type" in headers:
+                del headers["Content-Type"]
+                
+            # For file uploads with form data, use form data (not json)
+            request_data = {"files": files}
+            if data:
+                request_data["data"] = data
+                
+            # Files are now properly handled
         else:
             # JSON for everything else
             headers["Content-Type"] = "application/json"
@@ -1147,19 +1199,30 @@ class Morphik:
         """Convert a rule to a dictionary format"""
         return self._logic._convert_rule(rule)
 
-    def create_folder(self, name: str) -> Folder:
+    def create_folder(self, name: str, description: Optional[str] = None) -> Folder:
         """
         Create a folder to scope operations.
 
         Args:
             name: The name of the folder
+            description: Optional description for the folder
 
         Returns:
-            Folder: A folder object for scoped operations
+            Folder: A folder object ready for scoped operations
         """
-        return Folder(self, name)
-
-    def get_folder(self, name: str) -> Folder:
+        payload = {
+            "name": name
+        }
+        if description:
+            payload["description"] = description
+            
+        response = self._request("POST", "folders", data=payload)
+        folder_info = FolderInfo(**response)
+        
+        # Return a usable Folder object with the ID from the response
+        return Folder(self, name, folder_id=folder_info.id)
+    
+    def get_folder_by_name(self, name: str) -> Folder:
         """
         Get a folder by name to scope operations.
 
@@ -1170,6 +1233,57 @@ class Morphik:
             Folder: A folder object for scoped operations
         """
         return Folder(self, name)
+        
+    def get_folder(self, folder_id: str) -> Folder:
+        """
+        Get a folder by ID.
+
+        Args:
+            folder_id: ID of the folder
+
+        Returns:
+            Folder: A folder object for scoped operations
+        """
+        response = self._request("GET", f"folders/{folder_id}")
+        return Folder(self, response["name"], folder_id)
+
+    def list_folders(self) -> List[Folder]:
+        """
+        List all folders the user has access to as Folder objects.
+        
+        Returns:
+            List[Folder]: List of Folder objects ready for operations
+        """
+        folder_infos = self._request("GET", "folders")
+        return [Folder(self, info["name"], info["id"]) for info in folder_infos]
+        
+    def add_document_to_folder(self, folder_id: str, document_id: str) -> Dict[str, str]:
+        """
+        Add a document to a folder.
+
+        Args:
+            folder_id: ID of the folder
+            document_id: ID of the document
+
+        Returns:
+            Dict[str, str]: Success status
+        """
+        response = self._request("POST", f"folders/{folder_id}/documents/{document_id}")
+        return response
+        
+    def remove_document_from_folder(self, folder_id: str, document_id: str) -> Dict[str, str]:
+        """
+        Remove a document from a folder.
+
+        Args:
+            folder_id: ID of the folder
+            document_id: ID of the document
+
+        Returns:
+            Dict[str, str]: Success status
+        """
+        response = self._request("DELETE", f"folders/{folder_id}/documents/{document_id}")
+        return response
 
     def signin(self, end_user_id: str) -> UserScope:
         """
@@ -1290,11 +1404,13 @@ class Morphik:
             # Create form data
             form_data = self._logic._prepare_ingest_file_form_data(metadata, rules, None, None)
 
+            # use_colpali should be a query parameter as defined in the API
             response = self._request(
                 "POST",
-                f"ingest/file?use_colpali={str(use_colpali).lower()}",
+                "ingest/file",
                 data=form_data,
                 files=files,
+                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._logic._parse_document_response(response)
             doc._client = self
@@ -1333,11 +1449,18 @@ class Morphik:
 
         try:
             # Prepare form data
+            # Prepare form data - use_colpali should be a query parameter, not form data
             data = self._logic._prepare_ingest_files_form_data(
                 metadata, rules, use_colpali, parallel, None, None
             )
 
-            response = self._request("POST", "ingest/files", data=data, files=file_objects)
+            response = self._request(
+                "POST", 
+                "ingest/files", 
+                data=data, 
+                files=file_objects,
+                params={"use_colpali": str(use_colpali).lower()},
+            )
 
             if response.get("errors"):
                 # Log errors but don't raise exception
@@ -2061,7 +2184,8 @@ class Morphik:
                 print(f"Document {doc.external_id}: {doc.metadata.get('title')}")
             ```
         """
-        response = self._request("POST", "batch/documents", data=document_ids)
+        # API expects a dict with document_ids key, not a direct list
+        response = self._request("POST", "batch/documents", data={"document_ids": document_ids})
         docs = self._logic._parse_document_list_response(response)
         for doc in docs:
             doc._client = self
