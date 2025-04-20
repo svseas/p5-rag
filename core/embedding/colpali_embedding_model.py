@@ -1,6 +1,6 @@
 import base64
 import io
-from typing import List, Union
+from typing import List, Union, Tuple
 
 import numpy as np
 import torch
@@ -29,12 +29,16 @@ class ColpaliEmbeddingModel(BaseEmbeddingModel):
             attn_implementation="eager",  # "flash_attention_2" if is_flash_attn_2_available() else None,  # or "eager" if "mps"
         ).eval()
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
+        self.batch_size = 10  # Setting batch size to 10 as requested
 
     async def embed_for_ingestion(self, chunks: Union[Chunk, List[Chunk]]) -> List[np.ndarray]:
         if isinstance(chunks, Chunk):
             chunks = [chunks]
 
-        contents = []
+        # Separate images and texts immediately
+        images = []
+        texts = []
+        
         for chunk in chunks:
             if chunk.metadata.get("is_image"):
                 try:
@@ -47,15 +51,30 @@ class ColpaliEmbeddingModel(BaseEmbeddingModel):
                     # Now decode the base64 string
                     image_bytes = base64.b64decode(content)
                     image = open_image(io.BytesIO(image_bytes))
-                    contents.append(image)
+                    images.append(image)
                 except Exception as e:
                     logger.error(f"Error processing image: {str(e)}")
                     # Fall back to using the content as text
-                    contents.append(chunk.content)
+                    texts.append(chunk.content)
             else:
-                contents.append(chunk.content)
+                texts.append(chunk.content)
 
-        return [await self.generate_embeddings(content) for content in contents]
+        # Process in batches
+        embeddings = []
+        
+        # Process image batches
+        for i in range(0, len(images), self.batch_size):
+            batch = images[i:i + self.batch_size]
+            batch_embeddings = await self.generate_embeddings_batch_images(batch)
+            embeddings.extend(batch_embeddings)
+            
+        # Process text batches
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i:i + self.batch_size]
+            batch_embeddings = await self.generate_embeddings_batch_texts(batch)
+            embeddings.extend(batch_embeddings)
+        
+        return embeddings
 
     async def embed_for_query(self, text: str) -> torch.Tensor:
         return await self.generate_embeddings(text)
@@ -70,3 +89,17 @@ class ColpaliEmbeddingModel(BaseEmbeddingModel):
             embeddings: torch.Tensor = self.model(**processed)
 
         return embeddings.to(torch.float32).numpy(force=True)[0]
+        
+    async def generate_embeddings_batch_images(self, images: List[Image]) -> List[np.ndarray]:
+        processed_images = self.processor.process_images(images).to(self.model.device)
+        with torch.no_grad():
+            image_embeddings = self.model(**processed_images)
+        image_embeddings = image_embeddings.to(torch.float32).numpy(force=True)
+        return [emb for emb in image_embeddings]
+    
+    async def generate_embeddings_batch_texts(self, texts: List[str]) -> List[np.ndarray]:
+        processed_texts = self.processor.process_queries(texts).to(self.model.device)
+        with torch.no_grad():
+            text_embeddings = self.model(**processed_texts)
+        text_embeddings = text_embeddings.to(torch.float32).numpy(force=True)
+        return [emb for emb in text_embeddings]
