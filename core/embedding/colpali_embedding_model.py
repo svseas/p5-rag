@@ -4,10 +4,11 @@ from typing import List, Union
 
 import numpy as np
 import torch
-from colpali_engine.models import ColIdefics3, ColIdefics3Processor
+from colpali_engine.models import ColQwen2, ColQwen2Processor
 from PIL.Image import Image, open as open_image
 
 from core.embedding.base_embedding_model import BaseEmbeddingModel
+from colpali_engine.models import ColIdefics3, ColIdefics3Processor
 from core.models.chunk import Chunk
 import logging
 
@@ -29,7 +30,7 @@ class ColpaliEmbeddingModel(BaseEmbeddingModel):
             attn_implementation="eager",  # "flash_attention_2" if is_flash_attn_2_available() else None,  # or "eager" if "mps"
         ).eval()
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
-        self.batch_size = 10  # Setting batch size to 10 as requested
+        self.batch_size = 4  # Setting batch size to 10 as requested
 
     async def embed_for_ingestion(self, chunks: Union[Chunk, List[Chunk]]) -> List[np.ndarray]:
         if isinstance(chunks, Chunk):
