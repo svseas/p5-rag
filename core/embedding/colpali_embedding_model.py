@@ -1,6 +1,6 @@
 import base64
 import io
-from typing import List, Union, Tuple
+from typing import List, Union
 
 import numpy as np
 import torch
