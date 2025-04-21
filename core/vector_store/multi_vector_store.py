@@ -218,11 +218,7 @@ class MultiVectorStore(BaseVectorStore):
             embeddings = embeddings.cpu().numpy()
         if isinstance(embeddings, list) and not isinstance(embeddings[0], np.ndarray):
             embeddings = np.array(embeddings)
-        
-        # Add this check to ensure pgvector is registered for the connection
-        with self.get_connection() as conn:
-            register_vector(conn)
-        
+
         result = [Bit(embedding > 0) for embedding in embeddings]
         
         # End profiling and log if called from store_embeddings
