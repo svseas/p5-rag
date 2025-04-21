@@ -27,7 +27,17 @@ from core.services.rules_processor import RulesProcessor
 from core.config import get_settings
 from sqlalchemy import text
 
+# Configure logger for ingestion worker
 logger = logging.getLogger(__name__)
+
+# Create logs directory if it doesn't exist
+os.makedirs("logs", exist_ok=True)
+
+# Set up file handler for worker_ingestion.log
+file_handler = logging.FileHandler("logs/worker_ingestion.log")
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
+logger.setLevel(logging.INFO)
 
 async def get_document_with_retry(document_service, document_id, auth, max_retries=3, initial_delay=0.3):
     """
