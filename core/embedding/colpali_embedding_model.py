@@ -27,7 +27,7 @@ class ColpaliEmbeddingModel(BaseEmbeddingModel):
             model_name,
             torch_dtype=torch.bfloat16,
             device_map=device,  # "cuda:0",  # or "mps" if on Apple Silicon
-            attn_implementation="eager",  # "flash_attention_2" if is_flash_attn_2_available() else None,  # or "eager" if "mps"
+            attn_implementation="flash_attention_2",  # "flash_attention_2" if is_flash_attn_2_available() else None,  # or "eager" if "mps"
         ).eval()
         self.processor = ColIdefics3Processor.from_pretrained(model_name)
         self.batch_size = 4  # Setting batch size to 10 as requested
