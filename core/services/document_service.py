@@ -40,8 +40,13 @@ from PIL.Image import Image
 import tempfile
 import os
 import asyncio
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
+
+# Create a dedicated logger for worker ingestion profiling
+worker_logger = logging.getLogger("core.workers.ingestion_worker")
+
 IMAGE = {im.mime for im in IMAGE}
 
 CHARS_PER_TOKEN = 4
@@ -850,11 +855,18 @@ class DocumentService:
         max_retries = 3
         retry_delay = 1.0
         
+        # Performance tracking
+        profiling_start = perf_counter()
+        vector_store_time = 0
+        colpali_store_time = 0
+        database_time = 0
+        
         # Store chunks in vector store with retry
         attempt = 0
         success = False
         result = None
         
+        vs_start = perf_counter()
         while attempt < max_retries and not success:
             try:
                 success, result = await self.vector_store.store_embeddings(chunk_objects)
@@ -877,6 +889,7 @@ class DocumentService:
                     # For other exceptions, don't retry
                     logger.error(f"Error storing embeddings: {error_msg}")
                     raise
+        vector_store_time = perf_counter() - vs_start
         
         logger.debug("Stored chunk embeddings in vector store")
         doc.chunk_ids = result
@@ -888,6 +901,7 @@ class DocumentService:
             success = False
             result_multivector = None
             
+            colpali_start = perf_counter()
             while attempt < max_retries and not success:
                 try:
                     success, result_multivector = await self.colpali_vector_store.store_embeddings(
@@ -912,6 +926,7 @@ class DocumentService:
                         # For other exceptions, don't retry
                         logger.error(f"Error storing colpali embeddings: {error_msg}")
                         raise
+            colpali_store_time = perf_counter() - colpali_start
             
             logger.debug("Stored multivector chunk embeddings in vector store")
             doc.chunk_ids += result_multivector
@@ -921,6 +936,7 @@ class DocumentService:
         retry_delay = 1.0
         success = False
         
+        db_start = perf_counter()
         while attempt < max_retries and not success:
             try:
                 if is_update and auth:
@@ -958,6 +974,17 @@ class DocumentService:
                     # For other exceptions, don't retry
                     logger.error(f"Error storing document metadata: {error_msg}")
                     raise
+        database_time = perf_counter() - db_start
+        
+        # Log profiling information to worker_ingestion.log
+        total_time = perf_counter() - profiling_start
+        worker_logger.info(f"_store_chunks_and_doc profiling: Total time={total_time:.2f}s")
+        worker_logger.info(f"  - Primary vector store: {vector_store_time:.2f}s ({vector_store_time*100/total_time:.1f}%)")
+        if use_colpali and chunk_objects_multivector:
+            worker_logger.info(f"  - Colpali vector store: {colpali_store_time:.2f}s ({colpali_store_time*100/total_time:.1f}%)")
+        worker_logger.info(f"  - Database operations: {database_time:.2f}s ({database_time*100/total_time:.1f}%)")
+        worker_logger.info(f"  - Other operations: {(total_time - vector_store_time - colpali_store_time - database_time):.2f}s ({(total_time - vector_store_time - colpali_store_time - database_time)*100/total_time:.1f}%)")
+        worker_logger.info(f"  - Number of chunks: {len(chunk_objects)} primary, {len(chunk_objects_multivector) if chunk_objects_multivector else 0} colpali")
         
         logger.debug("Stored document metadata in database")
         logger.debug(f"Chunk IDs stored: {doc.chunk_ids}")
