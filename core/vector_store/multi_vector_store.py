@@ -8,8 +8,12 @@ import psycopg
 from pgvector.psycopg import Bit, register_vector
 from core.models.chunk import DocumentChunk
 from .base_vector_store import BaseVectorStore
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
+
+# Create a dedicated logger for worker ingestion profiling
+worker_logger = logging.getLogger("core.workers.ingestion_worker")
 
 
 class MultiVectorStore(BaseVectorStore):
@@ -207,6 +211,9 @@ class MultiVectorStore(BaseVectorStore):
 
     def _binary_quantize(self, embeddings: Union[np.ndarray, torch.Tensor, List]) -> List[Bit]:
         """Convert embeddings to binary format for PostgreSQL BIT[] arrays."""
+        # Start profiling
+        start_time = perf_counter()
+        
         if isinstance(embeddings, torch.Tensor):
             embeddings = embeddings.cpu().numpy()
         if isinstance(embeddings, list) and not isinstance(embeddings[0], np.ndarray):
@@ -216,17 +223,41 @@ class MultiVectorStore(BaseVectorStore):
         with self.get_connection() as conn:
             register_vector(conn)
         
-        return [Bit(embedding > 0) for embedding in embeddings]
+        result = [Bit(embedding > 0) for embedding in embeddings]
+        
+        # End profiling and log if called from store_embeddings
+        end_time = perf_counter()
+        self._last_quantize_time = end_time - start_time
+        
+        return result
 
     async def store_embeddings(self, chunks: List[DocumentChunk]) -> Tuple[bool, List[str]]:
         """Store document chunks with their multi-vector embeddings."""
-        # try:
+        # Start overall profiling
+        total_start_time = perf_counter()
+        
+        # Initialize timing variables
+        quantize_total_time = 0
+        db_operation_total_time = 0
+        connection_total_time = 0
+        
+        # Track per-chunk times to identify outliers
+        chunk_times = []
+        chunk_db_times = []
+        chunk_sizes = []
+        
         if not chunks:
+            worker_logger.info("MultiVectorStore.store_embeddings: No chunks to store")
             return True, []
 
         stored_ids = []
-
-        for chunk in chunks:
+        
+        # Start loop profiling
+        loop_start_time = perf_counter()
+        
+        for chunk_idx, chunk in enumerate(chunks):
+            chunk_start_time = perf_counter()
+            
             # Ensure embeddings exist
             if not hasattr(chunk, "embedding") or chunk.embedding is None:
                 logger.error(
@@ -236,12 +267,30 @@ class MultiVectorStore(BaseVectorStore):
 
             # For multi-vector embeddings, we expect a list of vectors
             embeddings = chunk.embedding
+            
+            # Track embedding size for analysis
+            embedding_size = len(embeddings) if isinstance(embeddings, list) else 1
+            chunk_sizes.append(embedding_size)
 
             # Create binary representation for each vector
+            # Reset the last quantize time tracker
+            self._last_quantize_time = 0
             binary_embeddings = self._binary_quantize(embeddings)
+            # Capture the time from the internal tracker
+            quantize_time = self._last_quantize_time
+            quantize_total_time += quantize_time
 
-            # Insert into database with retry logic
+            # Insert into database with retry logic - track time
+            db_start_time = perf_counter()
+            
+            # Track connection establishment time
+            conn_start_time = perf_counter()
             with self.get_connection() as conn:
+                conn_time = perf_counter() - conn_start_time
+                connection_total_time += conn_time
+                
+                # Track actual query execution time
+                query_start_time = perf_counter()
                 conn.execute(
                     """
                     INSERT INTO multi_vector_embeddings 
@@ -256,16 +305,54 @@ class MultiVectorStore(BaseVectorStore):
                         binary_embeddings,
                     ),
                 )
+                query_time = perf_counter() - query_start_time
+            
+            db_time = perf_counter() - db_start_time
+            db_operation_total_time += db_time
+            
+            # Track chunk processing time
+            chunk_time = perf_counter() - chunk_start_time
+            chunk_times.append(chunk_time)
+            chunk_db_times.append(db_time)
 
             stored_ids.append(f"{chunk.document_id}-{chunk.chunk_number}")
+            
+            # Log detailed metrics for specific chunks (first, middle, last)
+            if chunk_idx == 0 or chunk_idx == len(chunks) // 2 or chunk_idx == len(chunks) - 1:
+                worker_logger.info(f"MultiVectorStore chunk {chunk_idx+1}/{len(chunks)} profiling: " 
+                                 f"Total={chunk_time:.4f}s, "
+                                 f"Quantize={quantize_time:.4f}s ({quantize_time*100/chunk_time:.1f}%), "
+                                 f"DB={db_time:.4f}s ({db_time*100/chunk_time:.1f}%), "
+                                 f"Conn={conn_time:.4f}s ({conn_time*100/db_time:.1f}% of DB), "
+                                 f"Query={query_time:.4f}s ({query_time*100/db_time:.1f}% of DB), "
+                                 f"Vectors={embedding_size}")
 
+        loop_time = perf_counter() - loop_start_time
+        total_time = perf_counter() - total_start_time
+        
+        # Calculate statistics for chunk processing times
+        avg_chunk_time = sum(chunk_times) / len(chunk_times) if chunk_times else 0
+        max_chunk_time = max(chunk_times) if chunk_times else 0
+        min_chunk_time = min(chunk_times) if chunk_times else 0
+        
+        avg_db_time = sum(chunk_db_times) / len(chunk_db_times) if chunk_db_times else 0
+        max_db_time = max(chunk_db_times) if chunk_db_times else 0
+        
+        avg_vectors = sum(chunk_sizes) / len(chunk_sizes) if chunk_sizes else 0
+        max_vectors = max(chunk_sizes) if chunk_sizes else 0
+        
+        # Log detailed profiling information
+        worker_logger.info(f"MultiVectorStore.store_embeddings profiling: Total time={total_time:.4f}s for {len(chunks)} chunks")
+        worker_logger.info(f"  - Binary quantization: {quantize_total_time:.4f}s ({quantize_total_time*100/total_time:.1f}%)")
+        worker_logger.info(f"  - Database operations: {db_operation_total_time:.4f}s ({db_operation_total_time*100/total_time:.1f}%)")
+        worker_logger.info(f"  - Connection overhead: {connection_total_time:.4f}s ({connection_total_time*100/db_operation_total_time:.1f}% of DB time)")
+        worker_logger.info(f"  - For loop overhead: {loop_time - quantize_total_time - db_operation_total_time:.4f}s")
+        worker_logger.info(f"  - Chunk processing stats: Avg={avg_chunk_time:.4f}s, Min={min_chunk_time:.4f}s, Max={max_chunk_time:.4f}s")
+        worker_logger.info(f"  - DB operation stats: Avg={avg_db_time:.4f}s, Max={max_db_time:.4f}s")
+        worker_logger.info(f"  - Vector count stats: Avg={avg_vectors:.1f}, Max={max_vectors}")
+        
         logger.debug(f"{len(stored_ids)} vector embeddings added successfully!")
         return len(stored_ids) > 0, stored_ids
-
-        # except Exception as e:
-        #     logger.error(f"Error storing multi-vector embeddings: {str(e)}")
-        #     raise e
-        #     return False, []
 
     async def query_similar(
         self,
