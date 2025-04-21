@@ -250,38 +250,37 @@ class MultiVectorStore(BaseVectorStore):
         
         # Start loop profiling
         loop_start_time = perf_counter()
-        
-        for chunk_idx, chunk in enumerate(chunks):
-            chunk_start_time = perf_counter()
-            
-            # Ensure embeddings exist
-            if not hasattr(chunk, "embedding") or chunk.embedding is None:
-                logger.error(
-                    f"Missing embeddings for chunk {chunk.document_id}-{chunk.chunk_number}"
-                )
-                continue
+        with self.get_connection() as conn:
+            for chunk_idx, chunk in enumerate(chunks):
+                chunk_start_time = perf_counter()
+                
+                # Ensure embeddings exist
+                if not hasattr(chunk, "embedding") or chunk.embedding is None:
+                    logger.error(
+                        f"Missing embeddings for chunk {chunk.document_id}-{chunk.chunk_number}"
+                    )
+                    continue
 
-            # For multi-vector embeddings, we expect a list of vectors
-            embeddings = chunk.embedding
-            
-            # Track embedding size for analysis
-            embedding_size = len(embeddings) if isinstance(embeddings, list) else 1
-            chunk_sizes.append(embedding_size)
+                # For multi-vector embeddings, we expect a list of vectors
+                embeddings = chunk.embedding
+                
+                # Track embedding size for analysis
+                embedding_size = len(embeddings) if isinstance(embeddings, list) else 1
+                chunk_sizes.append(embedding_size)
 
-            # Create binary representation for each vector
-            # Reset the last quantize time tracker
-            self._last_quantize_time = 0
-            binary_embeddings = self._binary_quantize(embeddings)
-            # Capture the time from the internal tracker
-            quantize_time = self._last_quantize_time
-            quantize_total_time += quantize_time
+                # Create binary representation for each vector
+                # Reset the last quantize time tracker
+                self._last_quantize_time = 0
+                binary_embeddings = self._binary_quantize(embeddings)
+                # Capture the time from the internal tracker
+                quantize_time = self._last_quantize_time
+                quantize_total_time += quantize_time
 
-            # Insert into database with retry logic - track time
-            db_start_time = perf_counter()
-            
-            # Track connection establishment time
-            conn_start_time = perf_counter()
-            with self.get_connection() as conn:
+                # Insert into database with retry logic - track time
+                db_start_time = perf_counter()
+                
+                # Track connection establishment time
+                conn_start_time = perf_counter()
                 conn_time = perf_counter() - conn_start_time
                 connection_total_time += conn_time
                 
@@ -302,26 +301,26 @@ class MultiVectorStore(BaseVectorStore):
                     ),
                 )
                 query_time = perf_counter() - query_start_time
-            
-            db_time = perf_counter() - db_start_time
-            db_operation_total_time += db_time
-            
-            # Track chunk processing time
-            chunk_time = perf_counter() - chunk_start_time
-            chunk_times.append(chunk_time)
-            chunk_db_times.append(db_time)
+                
+                db_time = perf_counter() - db_start_time
+                db_operation_total_time += db_time
+                
+                # Track chunk processing time
+                chunk_time = perf_counter() - chunk_start_time
+                chunk_times.append(chunk_time)
+                chunk_db_times.append(db_time)
 
-            stored_ids.append(f"{chunk.document_id}-{chunk.chunk_number}")
-            
-            # Log detailed metrics for specific chunks (first, middle, last)
-            if chunk_idx == 0 or chunk_idx == len(chunks) // 2 or chunk_idx == len(chunks) - 1:
-                worker_logger.info(f"MultiVectorStore chunk {chunk_idx+1}/{len(chunks)} profiling: " 
-                                 f"Total={chunk_time:.4f}s, "
-                                 f"Quantize={quantize_time:.4f}s ({quantize_time*100/chunk_time:.1f}%), "
-                                 f"DB={db_time:.4f}s ({db_time*100/chunk_time:.1f}%), "
-                                 f"Conn={conn_time:.4f}s ({conn_time*100/db_time:.1f}% of DB), "
-                                 f"Query={query_time:.4f}s ({query_time*100/db_time:.1f}% of DB), "
-                                 f"Vectors={embedding_size}")
+                stored_ids.append(f"{chunk.document_id}-{chunk.chunk_number}")
+                
+                # Log detailed metrics for specific chunks (first, middle, last)
+                if chunk_idx == 0 or chunk_idx == len(chunks) // 2 or chunk_idx == len(chunks) - 1:
+                    worker_logger.info(f"MultiVectorStore chunk {chunk_idx+1}/{len(chunks)} profiling: " 
+                                    f"Total={chunk_time:.4f}s, "
+                                    f"Quantize={quantize_time:.4f}s ({quantize_time*100/chunk_time:.1f}%), "
+                                    f"DB={db_time:.4f}s ({db_time*100/chunk_time:.1f}%), "
+                                    f"Conn={conn_time:.4f}s ({conn_time*100/db_time:.1f}% of DB), "
+                                    f"Query={query_time:.4f}s ({query_time*100/db_time:.1f}% of DB), "
+                                    f"Vectors={embedding_size}")
 
         loop_time = perf_counter() - loop_start_time
         total_time = perf_counter() - total_start_time
