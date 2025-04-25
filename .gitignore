@@ -42,3 +42,5 @@ ee/ui-component/notebook-storage/notebooks.json
 ee/ui-component/package-lock.json
 ee/ui-component/yarn.lock
 ee/ui-component/node_modules
+ee/ui-component/.next
+ee/ui-component/next-env.d.ts
