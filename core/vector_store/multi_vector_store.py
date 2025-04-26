@@ -1,14 +1,17 @@
-from typing import List, Optional, Tuple, Union, ContextManager
 import logging
-import torch
-import numpy as np
 import time
 from contextlib import contextmanager
-import psycopg
-from pgvector.psycopg import Bit, register_vector
-from core.models.chunk import DocumentChunk
-from .base_vector_store import BaseVectorStore
 from time import perf_counter
+from typing import List, Optional, Tuple, Union
+
+import numpy as np
+import psycopg
+import torch
+from pgvector.psycopg import Bit, register_vector
+
+from core.models.chunk import DocumentChunk
+
+from .base_vector_store import BaseVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -40,20 +43,20 @@ class MultiVectorStore(BaseVectorStore):
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         # Don't initialize here - initialization will be handled separately
-        
+
     @contextmanager
     def get_connection(self):
         """Get a PostgreSQL connection with retry logic.
-        
+
         Yields:
             A PostgreSQL connection object
-            
+
         Raises:
             psycopg.OperationalError: If all connection attempts fail
         """
         attempt = 0
         last_error = None
-        
+
         # Try to establish a new connection with retries
         while attempt < self.max_retries:
             try:
@@ -61,7 +64,7 @@ class MultiVectorStore(BaseVectorStore):
                 conn = psycopg.connect(self.uri, autocommit=True)
                 # Register vector extension on every new connection
                 register_vector(conn)
-                
+
                 try:
                     yield conn
                     return
@@ -75,9 +78,11 @@ class MultiVectorStore(BaseVectorStore):
                 last_error = e
                 attempt += 1
                 if attempt < self.max_retries:
-                    logger.warning(f"Connection attempt {attempt} failed: {str(e)}. Retrying in {self.retry_delay} seconds...")
+                    logger.warning(
+                        f"Connection attempt {attempt} failed: {str(e)}. Retrying in {self.retry_delay} seconds..."
+                    )
                     time.sleep(self.retry_delay)
-        
+
         # If we get here, all retries failed
         logger.error(f"All connection attempts failed after {self.max_retries} retries: {str(last_error)}")
         raise last_error
@@ -96,7 +101,7 @@ class MultiVectorStore(BaseVectorStore):
                 check_table = conn.execute(
                     """
                     SELECT EXISTS (
-                        SELECT FROM information_schema.tables 
+                        SELECT FROM information_schema.tables
                         WHERE table_name = 'multi_vector_embeddings'
                     );
                 """
@@ -107,7 +112,7 @@ class MultiVectorStore(BaseVectorStore):
                     has_document_id = conn.execute(
                         """
                         SELECT EXISTS (
-                            SELECT FROM information_schema.columns 
+                            SELECT FROM information_schema.columns
                             WHERE table_name = 'multi_vector_embeddings' AND column_name = 'document_id'
                         );
                     """
@@ -118,7 +123,7 @@ class MultiVectorStore(BaseVectorStore):
                         logger.info("Updating multi_vector_embeddings table with required columns")
                         conn.execute(
                             """
-                            ALTER TABLE multi_vector_embeddings 
+                            ALTER TABLE multi_vector_embeddings
                             ADD COLUMN document_id TEXT,
                             ADD COLUMN chunk_number INTEGER,
                             ADD COLUMN content TEXT,
@@ -127,7 +132,7 @@ class MultiVectorStore(BaseVectorStore):
                         )
                         conn.execute(
                             """
-                            ALTER TABLE multi_vector_embeddings 
+                            ALTER TABLE multi_vector_embeddings
                             ALTER COLUMN document_id SET NOT NULL
                         """
                         )
@@ -157,7 +162,7 @@ class MultiVectorStore(BaseVectorStore):
                 with self.get_connection() as conn:
                     conn.execute(
                         """
-                        CREATE INDEX IF NOT EXISTS idx_multi_vector_document_id 
+                        CREATE INDEX IF NOT EXISTS idx_multi_vector_document_id
                         ON multi_vector_embeddings (document_id)
                     """
                     )
@@ -180,15 +185,17 @@ class MultiVectorStore(BaseVectorStore):
                         """
                         CREATE OR REPLACE FUNCTION max_sim(document bit[], query bit[]) RETURNS double precision AS $$
                             WITH queries AS (
-                                SELECT row_number() OVER () AS query_number, * FROM (SELECT unnest(query) AS query) AS foo
+                                SELECT row_number() OVER () AS query_number, *
+                                FROM (SELECT unnest(query) AS query) AS foo
                             ),
                             documents AS (
                                 SELECT unnest(document) AS document
                             ),
                             similarities AS (
-                                SELECT 
-                                    query_number, 
-                                    1.0 - (bit_count(document # query)::float / greatest(bit_length(query), 1)::float) AS similarity
+                                SELECT
+                                    query_number,
+                                    1.0 - (bit_count(document # query)::float /
+                                        greatest(bit_length(query), 1)::float) AS similarity
                                 FROM queries CROSS JOIN documents
                             ),
                             max_similarities AS (
@@ -213,83 +220,82 @@ class MultiVectorStore(BaseVectorStore):
         """Convert embeddings to binary format for PostgreSQL BIT[] arrays."""
         # Start profiling
         start_time = perf_counter()
-        
+
         if isinstance(embeddings, torch.Tensor):
             embeddings = embeddings.cpu().numpy()
         if isinstance(embeddings, list) and not isinstance(embeddings[0], np.ndarray):
             embeddings = np.array(embeddings)
 
         result = [Bit(embedding > 0) for embedding in embeddings]
-        
+
         # End profiling and log if called from store_embeddings
         end_time = perf_counter()
         self._last_quantize_time = end_time - start_time
-        
+
         return result
 
     async def store_embeddings(self, chunks: List[DocumentChunk]) -> Tuple[bool, List[str]]:
         """Store document chunks with their multi-vector embeddings."""
         # Start overall profiling
         total_start_time = perf_counter()
-        
+
         # Initialize timing variables
         quantize_total_time = 0
         db_operation_total_time = 0
         connection_total_time = 0
-        
+
         # Track per-chunk times to identify outliers
         chunk_times = []
         chunk_db_times = []
         chunk_sizes = []
-        
+
         if not chunks:
             worker_logger.info("MultiVectorStore.store_embeddings: No chunks to store")
             return True, []
 
         stored_ids = []
-        
+
         # Start loop profiling
         loop_start_time = perf_counter()
         with self.get_connection() as conn:
+            # Track connection establishment time (outside the loop, once per batch)
+            conn_start_time = perf_counter()
+            # The connection is established here by the context manager
+            conn_time = perf_counter() - conn_start_time
+            connection_total_time += conn_time  # This will capture the time for the initial connection setup
+
             for chunk_idx, chunk in enumerate(chunks):
                 chunk_start_time = perf_counter()
-                
+
                 # Ensure embeddings exist
                 if not hasattr(chunk, "embedding") or chunk.embedding is None:
-                    logger.error(
-                        f"Missing embeddings for chunk {chunk.document_id}-{chunk.chunk_number}"
-                    )
+                    logger.error(f"Missing embeddings for chunk {chunk.document_id}-{chunk.chunk_number}")
                     continue
 
                 # For multi-vector embeddings, we expect a list of vectors
                 embeddings = chunk.embedding
-                
+
                 # Track embedding size for analysis
-                embedding_size = len(embeddings) if isinstance(embeddings, list) else 1
-                chunk_sizes.append(embedding_size)
+                embedding_size = len(embeddings) if isinstance(embeddings, list) else 0  # Handle non-list case
+                if embedding_size > 0:  # Only add if there are embeddings
+                    chunk_sizes.append(embedding_size)
 
                 # Create binary representation for each vector
-                # Reset the last quantize time tracker
                 self._last_quantize_time = 0
                 binary_embeddings = self._binary_quantize(embeddings)
                 # Capture the time from the internal tracker
-                quantize_time = self._last_quantize_time
+                quantize_time = getattr(self, "_last_quantize_time", 0)  # Use getattr for safety
                 quantize_total_time += quantize_time
 
                 # Insert into database with retry logic - track time
                 db_start_time = perf_counter()
-                
-                # Track connection establishment time
-                conn_start_time = perf_counter()
-                conn_time = perf_counter() - conn_start_time
-                connection_total_time += conn_time
-                
+
                 # Track actual query execution time
                 query_start_time = perf_counter()
                 conn.execute(
                     """
-                    INSERT INTO multi_vector_embeddings 
-                    (document_id, chunk_number, content, chunk_metadata, embeddings) 
+                    INSERT INTO multi_vector_embeddings
+                    (document_id, chunk_number, content, chunk_metadata, embeddings)
                     VALUES (%s, %s, %s, %s, %s)
                     """,
                     (
@@ -301,51 +307,74 @@ class MultiVectorStore(BaseVectorStore):
                     ),
                 )
                 query_time = perf_counter() - query_start_time
-                
+
                 db_time = perf_counter() - db_start_time
                 db_operation_total_time += db_time
-                
+
                 # Track chunk processing time
                 chunk_time = perf_counter() - chunk_start_time
                 chunk_times.append(chunk_time)
                 chunk_db_times.append(db_time)
 
                 stored_ids.append(f"{chunk.document_id}-{chunk.chunk_number}")
-                
+
                 # Log detailed metrics for specific chunks (first, middle, last)
+                # Add checks for chunk_time and db_time being non-zero to avoid division by zero
                 if chunk_idx == 0 or chunk_idx == len(chunks) // 2 or chunk_idx == len(chunks) - 1:
-                    worker_logger.info(f"MultiVectorStore chunk {chunk_idx+1}/{len(chunks)} profiling: " 
-                                    f"Total={chunk_time:.4f}s, "
-                                    f"Quantize={quantize_time:.4f}s ({quantize_time*100/chunk_time:.1f}%), "
-                                    f"DB={db_time:.4f}s ({db_time*100/chunk_time:.1f}%), "
-                                    f"Conn={conn_time:.4f}s ({conn_time*100/db_time:.1f}% of DB), "
-                                    f"Query={query_time:.4f}s ({query_time*100/db_time:.1f}% of DB), "
-                                    f"Vectors={embedding_size}")
+                    quantize_perc = f"({quantize_time*100/chunk_time:.1f}%)" if chunk_time > 0 else "(N/A)"
+                    db_perc = f"({db_time*100/chunk_time:.1f}%)" if chunk_time > 0 else "(N/A)"
+                    query_perc_db = f"({query_time*100/db_time:.1f}% of DB)" if db_time > 0 else "(N/A)"
+
+                    worker_logger.info(
+                        f"MultiVectorStore chunk {chunk_idx+1}/{len(chunks)} profiling: "
+                        f"Total={chunk_time:.4f}s, "
+                        f"Quantize={quantize_time:.4f}s {quantize_perc}, "
+                        f"DB={db_time:.4f}s {db_perc}, "
+                        f"Query={query_time:.4f}s {query_perc_db}, "
+                        f"Vectors={embedding_size}"
+                    )
 
         loop_time = perf_counter() - loop_start_time
         total_time = perf_counter() - total_start_time
-        
+
         # Calculate statistics for chunk processing times
         avg_chunk_time = sum(chunk_times) / len(chunk_times) if chunk_times else 0
         max_chunk_time = max(chunk_times) if chunk_times else 0
         min_chunk_time = min(chunk_times) if chunk_times else 0
-        
+
         avg_db_time = sum(chunk_db_times) / len(chunk_db_times) if chunk_db_times else 0
         max_db_time = max(chunk_db_times) if chunk_db_times else 0
-        
+
         avg_vectors = sum(chunk_sizes) / len(chunk_sizes) if chunk_sizes else 0
         max_vectors = max(chunk_sizes) if chunk_sizes else 0
-        
+
         # Log detailed profiling information
-        worker_logger.info(f"MultiVectorStore.store_embeddings profiling: Total time={total_time:.4f}s for {len(chunks)} chunks")
-        worker_logger.info(f"  - Binary quantization: {quantize_total_time:.4f}s ({quantize_total_time*100/total_time:.1f}%)")
-        worker_logger.info(f"  - Database operations: {db_operation_total_time:.4f}s ({db_operation_total_time*100/total_time:.1f}%)")
-        worker_logger.info(f"  - Connection overhead: {connection_total_time:.4f}s ({connection_total_time*100/db_operation_total_time:.1f}% of DB time)")
-        worker_logger.info(f"  - For loop overhead: {loop_time - quantize_total_time - db_operation_total_time:.4f}s")
-        worker_logger.info(f"  - Chunk processing stats: Avg={avg_chunk_time:.4f}s, Min={min_chunk_time:.4f}s, Max={max_chunk_time:.4f}s")
-        worker_logger.info(f"  - DB operation stats: Avg={avg_db_time:.4f}s, Max={max_db_time:.4f}s")
+        # Add checks for non-zero divisors
+        quantize_perc_total = f"({quantize_total_time*100/total_time:.1f}%)" if total_time > 0 else "(N/A)"
+        db_perc_total = f"({db_operation_total_time*100/total_time:.1f}%)" if total_time > 0 else "(N/A)"
+        conn_perc_db_total = (
+            f"({connection_total_time*100/db_operation_total_time:.1f}% of DB time)"
+            if db_operation_total_time > 0
+            else "(N/A)"
+        )
+        loop_overhead = loop_time - quantize_total_time - db_operation_total_time
+        loop_overhead_perc = f"({loop_overhead*100/total_time:.1f}%)" if total_time > 0 else "(N/A)"
+
+        worker_logger.info(
+            f"MultiVectorStore.store_embeddings profiling: Total time={total_time:.4f}s for {len(chunks)} chunks"
+        )
+        worker_logger.info(f"  - Binary quantization: {quantize_total_time:.4f}s {quantize_perc_total}")
+        worker_logger.info(f"  - Database operations: {db_operation_total_time:.4f}s {db_perc_total}")
+        worker_logger.info(
+            f"  - Connection overhead (once per batch): {connection_total_time:.4f}s " f"{conn_perc_db_total}"
+        )
+        worker_logger.info(f"  - Loop overhead: {loop_overhead:.4f}s {loop_overhead_perc}")
+        worker_logger.info(
+            f"  - Chunk processing stats: Avg={avg_chunk_time:.4f}s, Min={min_chunk_time:.4f}s, Max={max_chunk_time:.4f}s"
+        )
+        worker_logger.info(f"  - DB operation stats (per chunk): Avg={avg_db_time:.4f}s, Max={max_db_time:.4f}s")
         worker_logger.info(f"  - Vector count stats: Avg={avg_vectors:.1f}, Max={max_vectors}")
-        
+
         logger.debug(f"{len(stored_ids)} vector embeddings added successfully!")
         return len(stored_ids) > 0, stored_ids
 
@@ -362,7 +391,7 @@ class MultiVectorStore(BaseVectorStore):
 
         # Build query
         query = """
-            SELECT id, document_id, chunk_number, content, chunk_metadata, 
+            SELECT id, document_id, chunk_number, content, chunk_metadata,
                     max_sim(embeddings, %s) AS similarity
             FROM multi_vector_embeddings
         """
@@ -372,7 +401,7 @@ class MultiVectorStore(BaseVectorStore):
         # Add document filter if needed with proper parameterization
         if doc_ids:
             # Use placeholders for each document ID
-            placeholders = ', '.join(['%s'] * len(doc_ids))
+            placeholders = ", ".join(["%s"] * len(doc_ids))
             query += f" WHERE document_id IN ({placeholders})"
             # Add document IDs to params
             params.extend(doc_ids)
@@ -416,36 +445,36 @@ class MultiVectorStore(BaseVectorStore):
     ) -> List[DocumentChunk]:
         """
         Retrieve specific chunks by document ID and chunk number in a single database query.
-        
+
         Args:
             chunk_identifiers: List of (document_id, chunk_number) tuples
-            
+
         Returns:
             List of DocumentChunk objects
         """
         # try:
         if not chunk_identifiers:
             return []
-            
+
         # Construct the WHERE clause with OR conditions
         conditions = []
         for doc_id, chunk_num in chunk_identifiers:
             conditions.append(f"(document_id = '{doc_id}' AND chunk_number = {chunk_num})")
-        
+
         where_clause = " OR ".join(conditions)
-        
+
         # Build and execute query
         query = f"""
             SELECT document_id, chunk_number, content, chunk_metadata
             FROM multi_vector_embeddings
             WHERE {where_clause}
         """
-        
+
         logger.debug(f"Batch retrieving {len(chunk_identifiers)} chunks from multi-vector store")
-        
+
         with self.get_connection() as conn:
             result = conn.execute(query).fetchall()
-        
+
         # Convert to DocumentChunks
         chunks = []
         for row in result:
@@ -453,7 +482,7 @@ class MultiVectorStore(BaseVectorStore):
                 metadata = eval(row[3]) if row[3] else {}
             except (ValueError, SyntaxError):
                 metadata = {}
-                
+
             chunk = DocumentChunk(
                 document_id=row[0],
                 chunk_number=row[1],
@@ -463,17 +492,17 @@ class MultiVectorStore(BaseVectorStore):
                 score=0.0,  # No relevance score for direct retrieval
             )
             chunks.append(chunk)
-            
+
         logger.debug(f"Found {len(chunks)} chunks in batch retrieval from multi-vector store")
         return chunks
-    
+
     async def delete_chunks_by_document_id(self, document_id: str) -> bool:
         """
         Delete all chunks associated with a document.
-        
+
         Args:
             document_id: ID of the document whose chunks should be deleted
-            
+
         Returns:
             bool: True if the operation was successful, False otherwise
         """
@@ -482,14 +511,14 @@ class MultiVectorStore(BaseVectorStore):
             query = f"DELETE FROM multi_vector_embeddings WHERE document_id = '{document_id}'"
             with self.get_connection() as conn:
                 conn.execute(query)
-            
+
             logger.info(f"Deleted all chunks for document {document_id} from multi-vector store")
             return True
-                
+
         except Exception as e:
             logger.error(f"Error deleting chunks for document {document_id} from multi-vector store: {str(e)}")
             return False
-    
+
     def close(self):
         """Close the database connection."""
         if self.conn:
