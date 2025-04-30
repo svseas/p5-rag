@@ -43,11 +43,11 @@ The fastest and easiest way to get started with Morphik is by signing up for fre
 
 If you'd like to self-host Morphik, you can find the dedicated instruction [here](https://docs.morphik.ai/getting-started). We offer options for direct installation and installation via docker.
 
-**Important**: Due to limited resources, we cannot provide full support for open-source deployments. We have an installation guide, and a [Discord community](https://discord.gg/BwMtv3Zaju) to help, but we can't guarantee full support.
+**Important**: Due to limited resources, we cannot provide full support for open-source deployments. We have an installation guide, and a [Discord community](https://discord.gg/BwMtv3Zaju) to help, but we can't guarantee full support.  
 
 ## Using Morphik
 
-Once you've signed up for Morphik, you can get started with ingesting and search your data right away.
+Once you've signed up for Morphik, you can get started with ingesting and search your data right away. 
 
 
 ### Code (Example: Python SDK)
@@ -81,11 +81,11 @@ You're welcome to contribute to the project! We love:
 - Feature requests via [GitHub issues](https://github.com/morphik-org/morphik-core/issues)
 - Pull requests
 
-Currently, we're focused on improving speed, integrating with more tools, and finding the research papers that provide the most value to our users. If you ahve thoughts, let us know in the discord or in GitHub!
+Currently, we're focused on improving speed, integrating with more tools, and finding the research papers that provide the most value to our users. If you have thoughts, let us know in the discord or in GitHub!
 
 ## Open source vs paid
 
-Certain features - such as Morphik Console - are not available in the open-source version. Any feature in the `ee` namespace is not available in the open-source version and carries a different license. Any feature outside that is open source under the MIT expat license.
+Certain features - such as Morphik Console - are not available in the open-source version. Any feature in the `ee` namespace is not available in the open-source version and carries a different license. Any feature outside that is open source under the MIT expat license. 
 
 ## Contributors
 
