@@ -42,7 +42,7 @@ file_handler = logging.FileHandler("logs/worker_ingestion.log")
 file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 logger.addHandler(file_handler)
 # Set logger level based on settings
-logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+logger.setLevel(logging.INFO)
 
 
 async def get_document_with_retry(document_service, document_id, auth, max_retries=3, initial_delay=0.3):
@@ -652,7 +652,6 @@ async def startup(ctx):
         enable_colpali=settings.ENABLE_COLPALI,
         colpali_embedding_model=colpali_embedding_model,
         colpali_vector_store=colpali_vector_store,
-        rules_processor=rules_processor,
     )
     ctx["document_service"] = document_service
     doc_service_time = time.time() - doc_service_start
