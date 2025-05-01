@@ -5,7 +5,6 @@ import os
 import tempfile
 from datetime import UTC, datetime
 from io import BytesIO
-from time import perf_counter
 from typing import Any, Dict, List, Optional, Type, Union
 
 import filetype
@@ -41,10 +40,6 @@ from ..models.folders import Folder
 from ..models.graph import Graph
 
 logger = logging.getLogger(__name__)
-
-# Create a dedicated logger for worker ingestion profiling
-worker_logger = logging.getLogger("core.workers.ingestion_worker")
-
 IMAGE = {im.mime for im in IMAGE}
 
 CHARS_PER_TOKEN = 4
@@ -881,11 +876,6 @@ class DocumentService:
         auth: Optional[AuthContext] = None,
     ) -> List[str]:
         """Helper to store chunks and document"""
-        # Performance tracking
-        profiling_start = perf_counter()
-        storage_time = 0
-        database_time = 0
-
         # Add retry logic for vector store operations
         max_retries = 3
         retry_delay = 1.0
@@ -997,9 +987,7 @@ class DocumentService:
             storage_tasks.append(store_with_retry(self.colpali_vector_store, chunk_objects_multivector, "colpali"))
 
         # Execute storage tasks concurrently
-        storage_start = perf_counter()
         storage_results = await asyncio.gather(*storage_tasks)
-        storage_time = perf_counter() - storage_start
 
         # Combine chunk IDs
         regular_chunk_ids = storage_results[0]
@@ -1009,28 +997,7 @@ class DocumentService:
         logger.debug(f"Stored chunk embeddings in vector stores: {len(doc.chunk_ids)} chunks total")
 
         # Store document metadata (this must be done after chunk storage)
-        db_start = perf_counter()
         await store_document_with_retry()
-        database_time = perf_counter() - db_start
-
-        # Log profiling information to worker_ingestion.log
-        total_time = perf_counter() - profiling_start
-        worker_logger.info(f"_store_chunks_and_doc profiling: Total time={total_time:.2f}s")
-        # Log combined storage time as vector store operations
-        if total_time > 0:  # Avoid division by zero
-            worker_logger.info(f"  - Vector Store operations: {storage_time:.2f}s ({storage_time*100/total_time:.1f}%)")
-            worker_logger.info(f"  - Database operations: {database_time:.2f}s ({database_time*100/total_time:.1f}%)")
-            worker_logger.info(
-                f"  - Other operations: {(total_time - storage_time - database_time):.2f}s ({(total_time - storage_time - database_time)*100/total_time:.1f}%)"
-            )
-        else:
-            worker_logger.info(f"  - Vector Store operations: {storage_time:.2f}s")
-            worker_logger.info(f"  - Database operations: {database_time:.2f}s")
-            worker_logger.info(f"  - Other operations: {(total_time - storage_time - database_time):.2f}s")
-        worker_logger.info(
-            f"  - Number of chunks: {len(chunk_objects)} primary, "
-            f"{len(chunk_objects_multivector) if chunk_objects_multivector else 0} colpali"
-        )
 
         logger.debug("Stored document metadata in database")
         logger.debug(f"Chunk IDs stored: {doc.chunk_ids}")
@@ -1811,8 +1778,8 @@ class DocumentService:
         # Also handle the case of multiple file versions in storage_files
         if hasattr(document, "storage_files") and document.storage_files:
             for file_info in document.storage_files:
-                bucket = file_info.get("bucket")
-                key = file_info.get("key")
+                bucket = file_info.bucket
+                key = file_info.key
                 if bucket and key and hasattr(self.storage, "delete_file"):
                     storage_deletion_tasks.append(self.storage.delete_file(bucket, key))
 

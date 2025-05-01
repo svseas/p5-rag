@@ -14,7 +14,6 @@ from core.config import get_settings
 from core.database.postgres_database import PostgresDatabase
 from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
 from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
-from core.limits_utils import check_and_increment_limits
 from core.models.auth import AuthContext, EntityType
 from core.models.rules import MetadataExtractionRule
 from core.parser.morphik_parser import MorphikParser
@@ -26,13 +25,10 @@ from core.storage.s3_storage import S3Storage
 from core.vector_store.multi_vector_store import MultiVectorStore
 from core.vector_store.pgvector_store import PGVectorStore
 
-# Configure logger for ingestion worker
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
-# Define constants for page calculation (mirroring document_service.py)
-CHARS_PER_TOKEN = 4
-TOKENS_PER_PAGE = 630
+# Configure logger for ingestion worker (restored from diff)
+settings = get_settings()  # Need settings for log level potentially, though INFO used here
 
 # Create logs directory if it doesn't exist
 os.makedirs("logs", exist_ok=True)
@@ -41,7 +37,7 @@ os.makedirs("logs", exist_ok=True)
 file_handler = logging.FileHandler("logs/worker_ingestion.log")
 file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 logger.addHandler(file_handler)
-# Set logger level based on settings
+# Set logger level based on settings (diff used INFO directly)
 logger.setLevel(logging.INFO)
 
 
@@ -133,10 +129,10 @@ async def process_ingestion_job(
     Returns:
         A dictionary with the document ID and processing status
     """
-    job_start_time = time.time()
-    phase_times = {}
-
     try:
+        # Start performance timer
+        job_start_time = time.time()
+        phase_times = {}
         # 1. Log the start of the job
         logger.info(f"Starting ingestion job for file: {original_filename}")
 
@@ -156,8 +152,8 @@ async def process_ingestion_job(
         document_service: DocumentService = ctx["document_service"]
 
         # 3. Download the file from storage
-        download_start = time.time()
         logger.info(f"Downloading file from {bucket}/{file_key}")
+        download_start = time.time()
         file_content = await document_service.storage.download_file(bucket, file_key)
 
         # Ensure file_content is bytes
@@ -170,22 +166,9 @@ async def process_ingestion_job(
         # 4. Parse file to text
         parse_start = time.time()
         additional_metadata, text = await document_service.parser.parse_file_to_text(file_content, original_filename)
+        logger.debug(f"Parsed file into text of length {len(text)}")
         parse_time = time.time() - parse_start
         phase_times["parse_file"] = parse_time
-        logger.info(f"File parsing took {parse_time:.2f}s, extracted {len(text)} characters")
-
-        # Check ingestion limits based on estimated page count
-        limits_start = time.time()
-        if settings.MODE == "cloud" and auth.user_id:
-            num_pages = int(len(text) / (CHARS_PER_TOKEN * TOKENS_PER_PAGE)) if text else 0
-            # Add a small minimum charge if there's content, even if less than one page
-            if num_pages == 0 and len(text) > 0:
-                num_pages = 1
-            logger.info(f"Calculated {num_pages} pages for limit checking.")
-            await check_and_increment_limits(auth, "ingest", num_pages, document_id)
-            logger.info("Ingestion limits checked and incremented successfully.")
-        limits_time = time.time() - limits_start
-        phase_times["check_limits"] = limits_time
 
         # === Apply post_parsing rules ===
         rules_start = time.time()
@@ -247,21 +230,23 @@ async def process_ingestion_job(
         # Update the document in the database
         update_start = time.time()
         success = await document_service.db.update_document(document_id=document_id, updates=updates, auth=auth)
+        update_time = time.time() - update_start
+        phase_times["update_document_parsed"] = update_time
+        logger.info(f"Initial document update took {update_time:.2f}s")
 
         if not success:
             raise ValueError(f"Failed to update document {document_id}")
 
         # Refresh document object with updated data
         doc = await document_service.db.get_document(document_id, auth)
-        update_time = time.time() - update_start
-        phase_times["update_document_parsed"] = update_time
-        logger.info(f"Initial document update took {update_time:.2f}s")
+        logger.debug("Updated document in database with parsed content")
 
         # 7. Split text into chunks
         chunking_start = time.time()
         parsed_chunks = await document_service.parser.split_text(text)
         if not parsed_chunks:
             raise ValueError("No content chunks extracted after rules processing")
+        logger.debug(f"Split processed text into {len(parsed_chunks)} chunks")
         chunking_time = time.time() - chunking_start
         phase_times["split_into_chunks"] = chunking_time
         logger.info(f"Text chunking took {chunking_time:.2f}s to create {len(parsed_chunks)} chunks")
@@ -367,6 +352,7 @@ async def process_ingestion_job(
         # 10. Generate embeddings for processed chunks
         embedding_start = time.time()
         embeddings = await document_service.embedding_model.embed_for_ingestion(processed_chunks)
+        logger.debug(f"Generated {len(embeddings)} embeddings")
         embedding_time = time.time() - embedding_start
         phase_times["generate_embeddings"] = embedding_time
         embeddings_per_second = len(embeddings) / embedding_time if embedding_time > 0 else 0
@@ -378,6 +364,7 @@ async def process_ingestion_job(
         # 11. Create chunk objects with potentially modified chunk content and metadata
         chunk_objects_start = time.time()
         chunk_objects = document_service._create_chunk_objects(doc.external_id, processed_chunks, embeddings)
+        logger.debug(f"Created {len(chunk_objects)} chunk objects")
         chunk_objects_time = time.time() - chunk_objects_start
         phase_times["create_chunk_objects"] = chunk_objects_time
         logger.debug(f"Creating chunk objects took {chunk_objects_time:.2f}s")
@@ -426,11 +413,12 @@ async def process_ingestion_job(
         phase_times["store_chunks_and_update_doc"] = store_time
         logger.info(f"Storing chunks and final document update took {store_time:.2f}s for {len(chunk_objects)} chunks")
 
-        total_time = time.time() - job_start_time
         logger.debug(f"Successfully completed processing for document {doc.external_id}")
 
         # 13. Log successful completion
         logger.info(f"Successfully completed ingestion for {original_filename}, document ID: {doc.external_id}")
+        # Performance summary
+        total_time = time.time() - job_start_time
 
         # Log performance summary
         logger.info("=== Ingestion Performance Summary ===")
@@ -438,7 +426,7 @@ async def process_ingestion_job(
         for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
             percentage = (duration / total_time) * 100 if total_time > 0 else 0
             logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
-        logger.info("====================================")
+        logger.info("=====================================")
 
         # 14. Return document ID
         return {
@@ -447,19 +435,10 @@ async def process_ingestion_job(
             "filename": original_filename,
             "content_type": content_type,
             "timestamp": datetime.now(UTC).isoformat(),
-            "performance": {"total_time": total_time, "phases": phase_times},
         }
 
     except Exception as e:
-        error_time = time.time() - job_start_time
-        logger.error(f"Error processing ingestion job for file {original_filename} after {error_time:.2f}s: {str(e)}")
-
-        if phase_times:
-            logger.info("=== Ingestion Performance Before Error ===")
-            for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
-                percentage = (duration / error_time) * 100 if error_time > 0 else 0
-                logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
-            logger.info("====================================")
+        logger.error(f"Error processing ingestion job for file {original_filename}: {str(e)}")
 
         # Update document status to failed if the document exists
         try:
@@ -474,18 +453,6 @@ async def process_ingestion_job(
 
             # Get database from context
             database = ctx.get("database")
-
-            # Capture limit exceeded exceptions specifically
-            from fastapi import HTTPException
-
-            if isinstance(e, HTTPException) and e.status_code == 429:
-                # Use the detail message from the exception for clarity
-                error_msg = e.detail
-                logger.warning(f"Ingestion job failed due to limit exceeded: {error_msg}")
-            else:
-                # General error logging
-                error_msg = str(e)
-                logger.error(f"Ingestion job failed due to an unexpected error: {error_msg}")
 
             if database:
                 # Try to get the document
@@ -515,8 +482,6 @@ async def process_ingestion_job(
             "filename": original_filename,
             "error": str(e),
             "timestamp": datetime.now(UTC).isoformat(),
-            "execution_time": error_time,
-            "phases_completed": list(phase_times.keys()),
         }
 
 
@@ -527,38 +492,32 @@ async def startup(ctx):
     This initialization is similar to what happens in core/api.py during app startup,
     but adapted for the worker context.
     """
-    startup_start = time.time()
     logger.info("Worker starting up. Initializing services...")
 
     # Get settings
     settings = get_settings()
 
     # Initialize database
-    db_start = time.time()
     logger.info("Initializing database...")
     database = PostgresDatabase(uri=settings.POSTGRES_URI)
     success = await database.initialize()
-    db_time = time.time() - db_start
     if success:
-        logger.info(f"Database initialization successful in {db_time:.2f}s")
+        logger.info("Database initialization successful")
     else:
         logger.error("Database initialization failed")
     ctx["database"] = database
 
     # Initialize vector store
-    vector_start = time.time()
     logger.info("Initializing primary vector store...")
     vector_store = PGVectorStore(uri=settings.POSTGRES_URI)
     success = await vector_store.initialize()
-    vector_time = time.time() - vector_start
     if success:
-        logger.info(f"Primary vector store initialization successful in {vector_time:.2f}s")
+        logger.info("Primary vector store initialization successful")
     else:
         logger.error("Primary vector store initialization failed")
     ctx["vector_store"] = vector_store
 
     # Initialize storage
-    storage_start = time.time()
     if settings.STORAGE_PROVIDER == "local":
         storage = LocalStorage(storage_path=settings.STORAGE_PATH)
     elif settings.STORAGE_PROVIDER == "aws-s3":
@@ -571,11 +530,8 @@ async def startup(ctx):
     else:
         raise ValueError(f"Unsupported storage provider: {settings.STORAGE_PROVIDER}")
     ctx["storage"] = storage
-    storage_time = time.time() - storage_start
-    logger.info(f"Storage initialization ({settings.STORAGE_PROVIDER}) completed in {storage_time:.2f}s")
 
     # Initialize parser
-    parser_start = time.time()
     parser = MorphikParser(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
@@ -586,62 +542,41 @@ async def startup(ctx):
         use_contextual_chunking=settings.USE_CONTEXTUAL_CHUNKING,
     )
     ctx["parser"] = parser
-    parser_time = time.time() - parser_start
-    logger.info(f"Parser initialization completed in {parser_time:.2f}s")
 
     # Initialize embedding model
-    embed_start = time.time()
     embedding_model = LiteLLMEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
-    embed_time = time.time() - embed_start
-    logger.info(f"Initialized LiteLLM embedding model with model key: {settings.EMBEDDING_MODEL} in {embed_time:.2f}s")
+    logger.info(f"Initialized LiteLLM embedding model with model key: {settings.EMBEDDING_MODEL}")
     ctx["embedding_model"] = embedding_model
 
     # Skip initializing completion model and reranker since they're not needed for ingestion
 
     # Initialize ColPali embedding model and vector store if enabled
-    colpali_start = time.time()
     colpali_embedding_model = None
     colpali_vector_store = None
     if settings.ENABLE_COLPALI:
         logger.info("Initializing ColPali components...")
-        colpali_embed_model_start = time.time()
         colpali_embedding_model = ColpaliEmbeddingModel()
-        colpali_embed_model_time = time.time() - colpali_embed_model_start
-        logger.info(f"ColPali embedding model initialized in {colpali_embed_model_time:.2f}s")
-
-        colpali_vector_start = time.time()
         colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
         # Properly await the initialization to ensure indexes are ready
         # MultiVectorStore.initialize is synchronous, so we need to run it in a thread
         success = await asyncio.to_thread(colpali_vector_store.initialize)
-        colpali_vector_time = time.time() - colpali_vector_start
         if success:
-            logger.info(f"ColPali vector store initialization successful in {colpali_vector_time:.2f}s")
+            logger.info("ColPali vector store initialization successful")
         else:
             logger.error("ColPali vector store initialization failed")
     ctx["colpali_embedding_model"] = colpali_embedding_model
     ctx["colpali_vector_store"] = colpali_vector_store
-    colpali_time = time.time() - colpali_start
-    if settings.ENABLE_COLPALI:
-        logger.info(f"Total ColPali initialization took {colpali_time:.2f}s")
     ctx["cache_factory"] = None
 
     # Initialize rules processor
-    rules_start = time.time()
     rules_processor = RulesProcessor()
     ctx["rules_processor"] = rules_processor
-    rules_time = time.time() - rules_start
-    logger.info(f"Rules processor initialized in {rules_time:.2f}s")
 
     # Initialize telemetry service
-    telemetry_start = time.time()
     telemetry = TelemetryService()
     ctx["telemetry"] = telemetry
-    telemetry_time = time.time() - telemetry_start
-    logger.info(f"Telemetry service initialized in {telemetry_time:.2f}s")
 
     # Create the document service using only the components needed for ingestion
-    doc_service_start = time.time()
     document_service = DocumentService(
         storage=storage,
         database=database,
@@ -654,31 +589,8 @@ async def startup(ctx):
         colpali_vector_store=colpali_vector_store,
     )
     ctx["document_service"] = document_service
-    doc_service_time = time.time() - doc_service_start
-    logger.info(f"Document service initialized in {doc_service_time:.2f}s")
 
-    total_startup_time = time.time() - startup_start
-    logger.info(f"Worker startup complete. All services initialized in {total_startup_time:.2f}s.")
-
-    # Log component initialization summary
-    logger.info("=== Initialization Time Summary ===")
-    components = {
-        "database": db_time,
-        "vector_store": vector_time,
-        "storage": storage_time,
-        "parser": parser_time,
-        "embedding_model": embed_time,
-        "colpali": colpali_time if settings.ENABLE_COLPALI else 0,
-        "rules_processor": rules_time,
-        "telemetry": telemetry_time,
-        "document_service": doc_service_time,
-    }
-
-    for component, duration in sorted(components.items(), key=lambda x: x[1], reverse=True):
-        if duration > 0:
-            percentage = (duration / total_startup_time) * 100 if total_startup_time > 0 else 0
-            logger.info(f"  - {component}: {duration:.2f}s ({percentage:.1f}%)")
-    logger.info("===================================")
+    logger.info("Worker startup complete. All services initialized.")
 
 
 async def shutdown(ctx):
