@@ -19,15 +19,14 @@ logger = logging.getLogger(__name__)
 
 class ColpaliEmbeddingModel(BaseEmbeddingModel):
     def __init__(self):
-        start_time = time.time()
         device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Initializing ColpaliEmbeddingModel with device: {device}")
         start_time = time.time()
         self.model = ColQwen2_5.from_pretrained(
             "tsystems/colqwen2.5-3b-multilingual-v1.0",
             torch_dtype=torch.bfloat16,
-            device_map=device,  # "cuda:0",  # or "mps" if on Apple Silicon
-            attn_implementation="flash_attention_2",
+            device_map=device,  # Automatically detect and use available device
+            attn_implementation="flash_attention_2" if device == "cuda" else "eager",
         ).eval()
         self.processor: ColQwen2_5_Processor = ColQwen2_5_Processor.from_pretrained(
             "tsystems/colqwen2.5-3b-multilingual-v1.0"
@@ -169,8 +168,6 @@ class ColpaliEmbeddingModel(BaseEmbeddingModel):
             processed = self.processor.process_images([content]).to(self.model.device)
         else:
             processed = self.processor.process_queries([content]).to(self.model.device)
-        process_time = time.time() - process_start
-        logger.debug(f"Processing {content_type} took {process_time:.2f}s")
 
         process_time = time.time() - process_start
 
