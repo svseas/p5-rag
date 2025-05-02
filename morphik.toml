@@ -80,10 +80,10 @@ use_contextual_chunking = false
 contextual_chunking_model = "openai_gpt4o"  # Reference to a key in registered_models
 
 [document_analysis]
-model = "ollama_llama"  # Reference to a key in registered_models
+model = "openai_gpt4o_mini"  # Reference to a key in registered_models
 
 [parser.vision]
-model = "ollama_llama"  # Reference to a key in registered_models
+model = "openai_gpt4o"  # Reference to a key in registered_models
 frame_sample_rate = -1  # Set to -1 to disable frame captioning
 
 [reranker]
@@ -109,7 +109,7 @@ storage_path = "morphik-storage"
 provider = "pgvector"
 
 [rules]
-model = "ollama_llama"
+model = "openai_gpt4o_mini"
 batch_size = 4096
 
 [morphik]
@@ -122,7 +122,7 @@ host = "localhost"  # use "redis" for docker
 port = 6379
 
 [graph]
-model = "ollama_llama"
+model = "openai_gpt4o"
 enable_entity_resolution = true
 
 [telemetry]
