@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import arq
 import jwt
@@ -15,14 +15,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from core.agent import MorphikAgent
+from core.auth_utils import verify_token
 from core.cache.llama_cache_factory import LlamaCacheFactory
 from core.completion.litellm_completion import LiteLLMCompletionModel
 from core.config import get_settings
 from core.database.postgres_database import PostgresDatabase
+from core.embedding.colpali_api_embedding_model import ColpaliApiEmbeddingModel
 from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
 from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
 from core.limits_utils import check_and_increment_limits
-from core.models.auth import AuthContext, EntityType
+from core.models.auth import AuthContext
 from core.models.completion import ChunkSource, CompletionResponse
 from core.models.documents import ChunkResult, Document, DocumentResult
 from core.models.folders import Folder, FolderCreate
@@ -261,9 +263,19 @@ if settings.USE_RERANKING:
 # Initialize cache factory
 cache_factory = LlamaCacheFactory(Path(settings.STORAGE_PATH))
 
-# Initialize ColPali embedding model if enabled
-colpali_embedding_model = ColpaliEmbeddingModel() if settings.ENABLE_COLPALI else None
-colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI) if settings.ENABLE_COLPALI else None
+# Initialize ColPali embedding model per mode (off/local/api)
+match settings.COLPALI_MODE:
+    case "off":
+        colpali_embedding_model = None
+        colpali_vector_store = None
+    case "local":
+        colpali_embedding_model = ColpaliEmbeddingModel()
+        colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
+    case "api":
+        colpali_embedding_model = ColpaliApiEmbeddingModel()
+        colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
+    case _:
+        raise ValueError(f"Unsupported COLPALI_MODE: {settings.COLPALI_MODE}")
 
 # Initialize document service with configured components
 document_service = DocumentService(
@@ -275,7 +287,7 @@ document_service = DocumentService(
     parser=parser,
     reranker=reranker,
     cache_factory=cache_factory,
-    enable_colpali=settings.ENABLE_COLPALI,
+    enable_colpali=(settings.COLPALI_MODE != "off"),
     colpali_embedding_model=colpali_embedding_model,
     colpali_vector_store=colpali_vector_store,
 )
@@ -283,49 +295,19 @@ document_service = DocumentService(
 # Initialize the MorphikAgent once to load tool definitions and avoid repeated I/O
 morphik_agent = MorphikAgent(document_service=document_service)
 
+# ---------------------------------------------------------------------------
+# Mount enterprise-only routes when the proprietary ``ee`` package
+# is present.
+# ---------------------------------------------------------------------------
 
-async def verify_token(authorization: str = Header(None)) -> AuthContext:
-    """Verify JWT Bearer token or return dev context if dev_mode is enabled."""
-    # Check if dev mode is enabled
-    if settings.dev_mode:
-        return AuthContext(
-            entity_type=EntityType(settings.dev_entity_type),
-            entity_id=settings.dev_entity_id,
-            permissions=set(settings.dev_permissions),
-            user_id=settings.dev_entity_id,  # In dev mode, entity_id is also the user_id
-        )
+try:
+    from ee.routers import init_app as _init_ee_app  # type: ignore
 
-    # Normal token verification flow
-    if not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    try:
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid authorization header")
-
-        token = authorization[7:]  # Remove "Bearer "
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-
-        if datetime.fromtimestamp(payload["exp"], UTC) < datetime.now(UTC):
-            raise HTTPException(status_code=401, detail="Token expired")
-
-        # Support both "type" and "entity_type" fields for compatibility
-        entity_type_field = payload.get("type") or payload.get("entity_type")
-        if not entity_type_field:
-            raise HTTPException(status_code=401, detail="Missing entity type in token")
-
-        return AuthContext(
-            entity_type=EntityType(entity_type_field),
-            entity_id=payload["entity_id"],
-            app_id=payload.get("app_id"),
-            permissions=set(payload.get("permissions", ["read"])),
-            user_id=payload.get("user_id", payload["entity_id"]),  # Use user_id if available, fallback to entity_id
-        )
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    _init_ee_app(app)  # noqa: SLF001 – runtime extension
+    logger.info("Enterprise routes mounted (ee package detected).")
+except ModuleNotFoundError:
+    # Expected in OSS builds – silently ignore.
+    logger.debug("Enterprise package not found – running in community mode.")
 
 
 @app.post("/ingest/text", response_model=Document)
@@ -450,8 +432,14 @@ async def ingest_file(
         # Set processing status
         doc.system_metadata["status"] = "processing"
 
-        # Store the document in the database
-        success = await database.store_document(doc)
+        # Store the document in the *per-app* database that verify_token has
+        # already routed to (document_service.db).  Using the global
+        # *database* here would put the row into the control-plane DB and the
+        # ingestion worker – which connects to the per-app DB – would never
+        # find it.
+        app_db = document_service.db
+
+        success = await app_db.store_document(doc)
         if not success:
             raise Exception("Failed to store document metadata")
 
@@ -470,9 +458,17 @@ async def ingest_file(
         # Generate a unique key for the file
         file_key = f"ingest_uploads/{uuid.uuid4()}/{file.filename}"
 
-        # Store the file in the configured storage
+        # Store the file in the dedicated bucket for this app (if any)
         file_content_base64 = base64.b64encode(file_content).decode()
-        bucket, stored_key = await storage.upload_from_base64(file_content_base64, file_key, file.content_type)
+
+        bucket_override = await document_service._get_bucket_for_app(auth.app_id)
+
+        bucket, stored_key = await storage.upload_from_base64(
+            file_content_base64,
+            file_key,
+            file.content_type,
+            bucket=bucket_override or "",
+        )
         logger.debug(f"Stored file in bucket {bucket} with key {stored_key}")
 
         # Update document with storage info
@@ -498,7 +494,7 @@ async def ingest_file(
         logger.debug(f"Initial storage_files for {doc.external_id}: {doc.storage_files}")
 
         # Update both storage_info and storage_files
-        await database.update_document(
+        await app_db.update_document(
             document_id=doc.external_id,
             updates={"storage_info": doc.storage_info, "storage_files": doc.storage_files},
             auth=auth,
@@ -657,8 +653,14 @@ async def batch_ingest_files(
             # Set processing status
             doc.system_metadata["status"] = "processing"
 
-            # Store the document in the database
-            success = await database.store_document(doc)
+            # Store the document in the *per-app* database that verify_token has
+            # already routed to (document_service.db).  Using the global
+            # *database* here would put the row into the control-plane DB and the
+            # ingestion worker – which connects to the per-app DB – would never
+            # find it.
+            app_db = document_service.db
+
+            success = await app_db.store_document(doc)
             if not success:
                 raise Exception(f"Failed to store document metadata for {file.filename}")
 
@@ -677,14 +679,22 @@ async def batch_ingest_files(
             # Generate a unique key for the file
             file_key = f"ingest_uploads/{uuid.uuid4()}/{file.filename}"
 
-            # Store the file in the configured storage
+            # Store the file in the dedicated bucket for this app (if any)
             file_content_base64 = base64.b64encode(file_content).decode()
-            bucket, stored_key = await storage.upload_from_base64(file_content_base64, file_key, file.content_type)
+
+            bucket_override = await document_service._get_bucket_for_app(auth.app_id)
+
+            bucket, stored_key = await storage.upload_from_base64(
+                file_content_base64,
+                file_key,
+                file.content_type,
+                bucket=bucket_override or "",
+            )
             logger.debug(f"Stored file in bucket {bucket} with key {stored_key}")
 
             # Update document with storage info
             doc.storage_info = {"bucket": bucket, "key": stored_key}
-            await database.update_document(
+            await app_db.update_document(
                 document_id=doc.external_id, updates={"storage_info": doc.storage_info}, auth=auth
             )
 
@@ -967,7 +977,7 @@ async def list_documents(
     skip: int = 0,
     limit: int = 10000,
     filters: Optional[Dict[str, Any]] = None,
-    folder_name: Optional[str] = None,
+    folder_name: Optional[Union[str, List[str]]] = None,
     end_user_id: Optional[str] = None,
 ):
     """
@@ -1081,7 +1091,7 @@ async def delete_document(document_id: str, auth: AuthContext = Depends(verify_t
 async def get_document_by_filename(
     filename: str,
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[str] = None,
+    folder_name: Optional[Union[str, List[str]]] = None,
     end_user_id: Optional[str] = None,
 ):
     """
@@ -1645,7 +1655,7 @@ async def remove_document_from_folder(
 async def get_graph(
     name: str,
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[str] = None,
+    folder_name: Optional[Union[str, List[str]]] = None,
     end_user_id: Optional[str] = None,
 ) -> Graph:
     """
@@ -1684,7 +1694,7 @@ async def get_graph(
 @telemetry.track(operation_type="list_graphs", metadata_resolver=telemetry.list_graphs_metadata)
 async def list_graphs(
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[str] = None,
+    folder_name: Optional[Union[str, List[str]]] = None,
     end_user_id: Optional[str] = None,
 ) -> List[Graph]:
     """
@@ -2058,7 +2068,8 @@ async def set_folder_rule(
                                     )
 
                                     # Update document in database
-                                    success = await document_service.db.update_document(doc.external_id, updates, auth)
+                                    app_db = document_service.db
+                                    success = await app_db.update_document(doc.external_id, updates, auth)
 
                                     if success:
                                         logger.info(f"Updated metadata for document {doc.external_id}")

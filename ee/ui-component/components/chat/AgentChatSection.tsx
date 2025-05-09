@@ -15,6 +15,7 @@ interface AgentChatSectionProps {
   authToken: string | null;
   initialMessages?: ChatMessage[];
   isReadonly?: boolean;
+  onAgentSubmit?: (query: string) => void;
 }
 
 /**
@@ -24,7 +25,8 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
   apiBaseUrl,
   authToken,
   initialMessages = [],
-  isReadonly = false
+  isReadonly = false,
+  onAgentSubmit
 }) => {
   // State for managing chat
   const [messages, setMessages] = useState<AgentUIMessage[]>(initialMessages.map(msg => ({
@@ -47,11 +49,13 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
 
     if (!input.trim() || status === 'submitted' || isReadonly) return;
 
+    const userQuery = input;
+
     // Create user message
     const userMessage: AgentUIMessage = {
       id: generateUUID(),
       role: 'user',
-      content: input,
+      content: userQuery,
       createdAt: new Date()
     };
 
@@ -73,6 +77,8 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
     // Update status and clear input
     setStatus('submitted');
     setInput('');
+
+    onAgentSubmit?.(userQuery);
 
     try {
       // Call agent API
@@ -172,7 +178,7 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
   return (
     <div className="relative flex flex-col h-full w-full bg-background">
       {/* Messages Area */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative min-h-0">
         <ScrollArea className="h-full" ref={messagesContainerRef}>
           {messages.length === 0 && (
             <div className="flex-1 flex items-center justify-center p-8 text-center">
