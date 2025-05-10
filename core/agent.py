@@ -20,6 +20,12 @@ from core.tools.tools import (
 
 logger = logging.getLogger(__name__)
 
+
+def _truncate_for_log(obj, limit=100):
+    s = str(obj)
+    return s if len(s) <= limit else s[:limit] + "...(truncated)"
+
+
 # Load environment variables
 load_dotenv(override=True)
 
@@ -180,7 +186,7 @@ when citing different sources. Use markdown formatting for text content to impro
         while True:
             logger.info(f"Sending completion request with {len(messages)} messages")
             resp = await acompletion(**model_params)
-            logger.info(f"Received response: {resp}")
+            logger.info(f"Received response: {_truncate_for_log(resp)}")
 
             msg = resp.choices[0].message
             # If no tool call, return final content
@@ -309,7 +315,7 @@ when citing different sources. Use markdown formatting for text content to impro
             call = msg.tool_calls[0]
             name = call.function.name
             args = json.loads(call.function.arguments)
-            logger.info(f"Tool call detected: {name} with args: {args}")
+            logger.info(f"Tool call detected: {name} with args: {_truncate_for_log(args)}")
 
             # Append assistant text and execute tool
             # logger.info(f"Appending assistant text: {msg}")
@@ -318,7 +324,7 @@ when citing different sources. Use markdown formatting for text content to impro
             messages.append(msg.to_dict(exclude_none=True))
             logger.info(f"Executing tool: {name}")
             result = await self._execute_tool(name, args, auth, source_map)
-            logger.info(f"Tool execution result: {result}")
+            logger.info(f"Tool execution result: {_truncate_for_log(result)}")
 
             # Add tool call and result to history
             tool_history.append({"tool_name": name, "tool_args": args, "tool_result": result})
