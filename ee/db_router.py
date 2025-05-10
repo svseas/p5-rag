@@ -46,6 +46,10 @@ _DB_CACHE: Dict[str, PostgresDatabase] = {}
 # PGVectorStore cache keyed by connection URI to avoid duplicate pools
 _VSTORE_CACHE: Dict[str, "PGVectorStore"] = {}
 _MVSTORE_CACHE: Dict[str, "MultiVectorStore"] = {}
+# Dedicated cache for control-plane vector store (covers non-app requests)
+_CONTROL_PLANE_VSTORE: Optional["PGVectorStore"] = None
+# Dedicated cache for control-plane multi-vector store
+_CONTROL_PLANE_MVSTORE: Optional["MultiVectorStore"] = None
 
 
 async def _resolve_connection_uri(app_id: str) -> Optional[str]:
@@ -105,9 +109,13 @@ async def get_vector_store_for_app(app_id: str | None):
     if PGVectorStore is None:
         return None
 
+    global _CONTROL_PLANE_VSTORE  # noqa: PLW0603 – module-level cache
+
     if not app_id:
-        settings = get_settings()
-        return PGVectorStore(uri=settings.POSTGRES_URI)
+        if _CONTROL_PLANE_VSTORE is None:
+            settings = get_settings()
+            _CONTROL_PLANE_VSTORE = PGVectorStore(uri=settings.POSTGRES_URI)
+        return _CONTROL_PLANE_VSTORE
 
     # Fetch the raw connection URI directly from the catalogue – this string
     # already contains the password.  We augment it to make sure it has
@@ -174,19 +182,47 @@ async def get_multi_vector_store_for_app(app_id: str | None):
     if MultiVectorStore is None:  # Dependency missing – feature disabled
         return None
 
+    global _CONTROL_PLANE_MVSTORE  # noqa: PLW0603 – module-level cache
     settings = get_settings()
 
     # ------------------------------------------------------------------
     # 1) No per-app routing required –> control-plane store
     # ------------------------------------------------------------------
     if not app_id:
-        uri = settings.POSTGRES_URI
-    else:
-        uri = await _resolve_connection_uri(app_id)
+        if _CONTROL_PLANE_MVSTORE is not None:
+            return _CONTROL_PLANE_MVSTORE
 
-        # Fallback (should not normally happen)
-        if uri is None:
-            uri = settings.POSTGRES_URI
+        # Build URI once (include sslmode=require)
+        uri = settings.POSTGRES_URI
+        from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+        parsed = urlparse(uri)
+        if parsed.scheme.startswith("postgresql+asyncpg"):
+            parsed = parsed._replace(scheme="postgresql")
+        q = parse_qs(parsed.query)
+        if "sslmode" not in q:
+            q["sslmode"] = ["require"]
+        parsed = parsed._replace(query=urlencode(q, doseq=True))
+        final_uri = urlunparse(parsed)
+
+        # Reuse cache if created via generic cache (unlikely due first call)
+        if final_uri in _MVSTORE_CACHE:
+            _CONTROL_PLANE_MVSTORE = _MVSTORE_CACHE[final_uri]
+            return _CONTROL_PLANE_MVSTORE
+
+        store = MultiVectorStore(uri=final_uri)
+        _MVSTORE_CACHE[final_uri] = store
+        _CONTROL_PLANE_MVSTORE = store
+        return store
+
+    # ------------------------------------------------------------------
+    # 2) Cached? –> quick return
+    # ------------------------------------------------------------------
+    uri = await _resolve_connection_uri(app_id)
+
+    # Fallback (should not normally happen)
+    if uri is None:
+        uri = settings.POSTGRES_URI
 
     # Convert asyncpg URI to plain psycopg (sync) variant expected by
     # MultiVectorStore and make sure *sslmode=require* is present so Neon
