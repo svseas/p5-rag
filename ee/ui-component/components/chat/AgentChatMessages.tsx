@@ -35,13 +35,13 @@ export interface BaseDisplayObject {
 
 // Text display object interface
 export interface TextDisplayObject extends BaseDisplayObject {
-  type: 'text';
+  type: "text";
   content: string; // Markdown content
 }
 
 // Image display object interface
 export interface ImageDisplayObject extends BaseDisplayObject {
-  type: 'image';
+  type: "image";
   content: string; // Base64 encoded image
   caption: string; // Text describing the image
 }
@@ -55,7 +55,7 @@ export interface SourceObject {
   documentName: string;
   documentId: string;
   content?: string; // Content from the source
-  contentType?: 'text' | 'image'; // Type of content
+  contentType?: "text" | "image"; // Type of content
 }
 
 // Define interface for the Tool Call
@@ -230,7 +230,7 @@ const MarkdownContent: React.FC<{ content: string }> = ({ content }) => {
 // Helper function to ensure image content is properly formatted
 const formatImageSource = (content: string): string => {
   // If already a data URI, use as is
-  if (content.startsWith('data:image/')) {
+  if (content.startsWith("data:image/")) {
     return content;
   }
 
@@ -246,47 +246,37 @@ const formatImageSource = (content: string): string => {
 // Component to render display objects
 const DisplayObjectRenderer: React.FC<{ object: DisplayObject; isInSourceView?: boolean }> = ({
   object,
-  isInSourceView = false
+  isInSourceView = false,
 }) => {
-  if (object.type === 'text') {
+  if (object.type === "text") {
     return (
       <div className={isInSourceView ? "my-1" : "my-2"}>
         <MarkdownContent content={object.content} />
-        {!isInSourceView && (
-          <div className="mt-1 text-xs text-muted-foreground">
-            Source: {object.source}
-          </div>
-        )}
+        {!isInSourceView && <div className="mt-1 text-xs text-muted-foreground">Source: {object.source}</div>}
       </div>
     );
-  } else if (object.type === 'image') {
+  } else if (object.type === "image") {
     // Try to determine if the content has the image format information
-    const hasImagePrefix = object.content.startsWith('data:image');
+    const hasImagePrefix = object.content.startsWith("data:image");
 
     return (
       <div className={isInSourceView ? "my-1" : "my-2"}>
         <div className="overflow-hidden rounded-md">
           <img
             src={hasImagePrefix ? object.content : `data:image/png;base64,${object.content}`}
-            alt={object.caption || 'Image'}
-            className="max-w-full h-auto"
-            onError={(e) => {
+            alt={object.caption || "Image"}
+            className="h-auto max-w-full"
+            onError={e => {
               // Fallback chain: try JPEG if PNG fails
               const target = e.target as HTMLImageElement;
-              if (!hasImagePrefix && target.src.includes('image/png')) {
+              if (!hasImagePrefix && target.src.includes("image/png")) {
                 target.src = `data:image/jpeg;base64,${object.content}`;
               }
             }}
           />
         </div>
-        {object.caption && (
-          <div className="mt-1 text-sm text-muted-foreground">{object.caption}</div>
-        )}
-        {!isInSourceView && (
-          <div className="mt-1 text-xs text-muted-foreground">
-            Source: {object.source}
-          </div>
-        )}
+        {object.caption && <div className="mt-1 text-sm text-muted-foreground">{object.caption}</div>}
+        {!isInSourceView && <div className="mt-1 text-xs text-muted-foreground">Source: {object.source}</div>}
       </div>
     );
   }
@@ -298,38 +288,38 @@ const detectImageFormat = (base64String: string): string => {
   // Check the first few bytes of the base64 to determine image format
   // See: https://en.wikipedia.org/wiki/List_of_file_signatures
   try {
-    if (!base64String || base64String.length < 10) return 'png';
+    if (!base64String || base64String.length < 10) return "png";
 
     // Decode the first few bytes of the base64 string
     const firstBytes = atob(base64String.substring(0, 20));
 
     // Check for common image signatures
-    if (firstBytes.startsWith('\xFF\xD8\xFF')) return 'jpeg';
-    if (firstBytes.startsWith('\x89PNG\r\n\x1A\n')) return 'png';
-    if (firstBytes.startsWith('GIF87a') || firstBytes.startsWith('GIF89a')) return 'gif';
-    if (firstBytes.startsWith('RIFF') && firstBytes.substring(8, 12) === 'WEBP') return 'webp';
+    if (firstBytes.startsWith("\xFF\xD8\xFF")) return "jpeg";
+    if (firstBytes.startsWith("\x89PNG\r\n\x1A\n")) return "png";
+    if (firstBytes.startsWith("GIF87a") || firstBytes.startsWith("GIF89a")) return "gif";
+    if (firstBytes.startsWith("RIFF") && firstBytes.substring(8, 12) === "WEBP") return "webp";
 
     // Default to PNG if signature not recognized
-    return 'png';
+    return "png";
   } catch (e) {
     // If any error in detection, default to PNG
-    return 'png';
+    return "png";
   }
 };
 
 // Component to render sources as tags with dropdown content
 const SourcesRenderer: React.FC<{ sources: SourceObject[]; displayObjects?: DisplayObject[] }> = ({
   sources,
-  displayObjects = []
+  displayObjects = [],
 }) => {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [animation, setAnimation] = useState<'open' | 'close' | null>(null);
+  const [animation, setAnimation] = useState<"open" | "close" | null>(null);
   const [visibleContent, setVisibleContent] = useState<string | null>(null);
 
   useEffect(() => {
     // Set animation state when source is selected
     if (selectedSource) {
-      setAnimation('open');
+      setAnimation("open");
       setVisibleContent(selectedSource);
     }
   }, [selectedSource]);
@@ -340,7 +330,7 @@ const SourcesRenderer: React.FC<{ sources: SourceObject[]; displayObjects?: Disp
   const toggleSource = (sourceId: string) => {
     if (selectedSource === sourceId) {
       // Close animation
-      setAnimation('close');
+      setAnimation("close");
       setTimeout(() => {
         setSelectedSource(null);
         setVisibleContent(null);
@@ -355,26 +345,21 @@ const SourcesRenderer: React.FC<{ sources: SourceObject[]; displayObjects?: Disp
   // Render source content
   const renderSourceContent = (source: SourceObject) => {
     if (!source.content) {
-      return (
-        <div className="text-xs text-muted-foreground">
-          No content available for this source.
-        </div>
-      );
+      return <div className="text-xs text-muted-foreground">No content available for this source.</div>;
     }
 
     // Render based on contentType
-    if (source.contentType === 'image') {
+    if (source.contentType === "image") {
       const content = source.content;
 
       // Handle different image formats similar to ChatMessages.tsx
-      if (content.startsWith('data:image/') ||
-          // If it looks like base64, we'll try as PNG
-          /^[A-Za-z0-9+/=]+$/.test(content.substring(0, 20))) {
-
+      if (
+        content.startsWith("data:image/") ||
+        // If it looks like base64, we'll try as PNG
+        /^[A-Za-z0-9+/=]+$/.test(content.substring(0, 20))
+      ) {
         // Format similar to how ChatMessages.tsx does it
-        const imageUrl = content.startsWith('data:image/')
-          ? content
-          : `data:image/png;base64,${content}`;
+        const imageUrl = content.startsWith("data:image/") ? content : `data:image/png;base64,${content}`;
 
         return (
           <div className="flex justify-center rounded-md bg-muted p-4">
@@ -387,16 +372,12 @@ const SourcesRenderer: React.FC<{ sources: SourceObject[]; displayObjects?: Disp
         );
       } else {
         // If not recognizable as an image format, show as text
-        return (
-          <div className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">
-            {content}
-          </div>
-        );
+        return <div className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{content}</div>;
       }
     } else {
       // Default to text/markdown with scrollable area
       return (
-        <div className="max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+        <div className="custom-scrollbar max-h-[300px] overflow-y-auto pr-1">
           <MarkdownContent content={source.content} />
         </div>
       );
@@ -409,7 +390,7 @@ const SourcesRenderer: React.FC<{ sources: SourceObject[]; displayObjects?: Disp
       <style>{scrollbarStyles}</style>
 
       <div className="mb-2 flex flex-wrap gap-2">
-        {sources.map((source) => (
+        {sources.map(source => (
           <Badge
             key={source.sourceId}
             variant={selectedSource === source.sourceId ? "default" : "outline"}
@@ -425,8 +406,11 @@ const SourcesRenderer: React.FC<{ sources: SourceObject[]; displayObjects?: Disp
       {visibleContent && (
         <div
           className={`mt-3 overflow-hidden rounded-md border bg-card shadow-sm transition-all duration-200 ease-in-out ${
-            animation === 'open' ? 'max-h-[400px] opacity-100 p-3' :
-            animation === 'close' ? 'max-h-0 opacity-0 p-0' : 'p-3'
+            animation === "open"
+              ? "max-h-[400px] p-3 opacity-100"
+              : animation === "close"
+                ? "max-h-0 p-0 opacity-0"
+                : "p-3"
           }`}
         >
           <div className="mb-2 flex items-center justify-between">

@@ -5,28 +5,29 @@ import { AgentPreviewMessage, AgentUIMessage, DisplayObject, SourceObject, ToolC
 import { generateUUID } from "@/lib/utils";
 
 // Sample base64 image (small red square)
-const sampleBase64Image = "iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==";
+const sampleBase64Image =
+  "iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==";
 
 // Sample tool call
 const sampleToolCall: ToolCall = {
   tool_name: "web_search",
   tool_args: { query: "sample search query" },
-  tool_result: { results: ["Sample result 1", "Sample result 2"] }
+  tool_result: { results: ["Sample result 1", "Sample result 2"] },
 };
 
 // Sample display objects
 const sampleDisplayObjects: DisplayObject[] = [
   {
-    type: 'text',
+    type: "text",
     content: "This is a **markdown** text display object with _formatting_.",
-    source: "source-123"
+    source: "source-123",
   },
   {
-    type: 'image',
+    type: "image",
     content: sampleBase64Image,
     caption: "A sample image caption",
-    source: "source-456"
-  }
+    source: "source-456",
+  },
 ];
 
 // Sample sources
@@ -34,13 +35,13 @@ const sampleSources: SourceObject[] = [
   {
     sourceId: "source-123",
     documentName: "Sample Document 1",
-    documentId: "doc-abc"
+    documentId: "doc-abc",
   },
   {
     sourceId: "source-456",
     documentName: "Sample Image Document",
-    documentId: "doc-xyz"
-  }
+    documentId: "doc-xyz",
+  },
 ];
 
 // Create sample messages
@@ -51,7 +52,7 @@ const createSampleMessages = (): AgentUIMessage[] => {
       id: generateUUID(),
       role: "user",
       content: "Show me information about data structures",
-      createdAt: new Date(Date.now() - 60000)
+      createdAt: new Date(Date.now() - 60000),
     },
     // Assistant message with display objects and sources
     {
@@ -62,9 +63,9 @@ const createSampleMessages = (): AgentUIMessage[] => {
       experimental_agentData: {
         tool_history: [sampleToolCall],
         displayObjects: sampleDisplayObjects,
-        sources: sampleSources
-      }
-    }
+        sources: sampleSources,
+      },
+    },
   ];
 };
 
