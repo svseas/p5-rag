@@ -173,9 +173,8 @@ async def get_vector_store_for_app(app_id: str | None):
     from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
     if uri is None:
-        # Should not happen – fallback to control-plane vector store
-        settings = get_settings()
-        return PGVectorStore(uri=settings.POSTGRES_URI)
+        # No dedicated DB for this app (Free/Pro) –> use shared store
+        return await get_vector_store_for_app(None)
 
     parsed = urlparse(uri)
 
