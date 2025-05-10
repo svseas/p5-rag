@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.config import get_settings
@@ -50,19 +50,54 @@ _MVSTORE_CACHE: Dict[str, "MultiVectorStore"] = {}
 _CONTROL_PLANE_VSTORE: Optional["PGVectorStore"] = None
 # Dedicated cache for control-plane multi-vector store
 _CONTROL_PLANE_MVSTORE: Optional["MultiVectorStore"] = None
+_CONN_URI_CACHE: Dict[str, Optional[str]] = {}
+# Reuse a single engine + sessionmaker for catalogue look-ups so we don't create
+# a new connection pool on every request.  The pool is tiny because we only
+# use it for simple SELECT queries.
+_RESOLVE_ENGINE: Optional["AsyncEngine"] = None
+_RESOLVE_SESSION: Optional[sessionmaker] = None
 
 
 async def _resolve_connection_uri(app_id: str) -> Optional[str]:
-    """Return ``connection_uri`` for *app_id* from **app_metadata** (async lookup)."""
-    settings = get_settings()
+    """Return ``connection_uri`` for *app_id* from **app_metadata** (async lookup).
 
-    engine = create_async_engine(settings.POSTGRES_URI, pool_size=2, max_overflow=4)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    The first lookup for a given *app_id* performs an actual database query
+    against the **app_metadata** catalogue.  The result is then cached so
+    subsequent calls are O(1) dictionary look-ups which avoids the overhead
+    of repeatedly creating a new SQLAlchemy engine *and* running the query.
+    """
 
-    async with async_session() as sess:
-        result = await sess.execute(select(AppMetadataModel).where(AppMetadataModel.id == app_id))
-        meta: AppMetadataModel | None = result.scalars().first()
-        return meta.connection_uri if meta else None
+    # Fast path –> in-memory cache hit
+    if app_id in _CONN_URI_CACHE:
+        return _CONN_URI_CACHE[app_id]
+
+    global _RESOLVE_ENGINE, _RESOLVE_SESSION  # noqa: PLW0603 – module-level cache
+
+    # Lazily initialise the tiny connection pool that backs catalogue look-ups
+    if _RESOLVE_ENGINE is None:
+        settings = get_settings()
+        _RESOLVE_ENGINE = create_async_engine(
+            settings.POSTGRES_URI,
+            pool_size=2,
+            max_overflow=4,
+            pool_pre_ping=True,
+        )
+        _RESOLVE_SESSION = sessionmaker(
+            _RESOLVE_ENGINE,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+    # At this point the sessionmaker is guaranteed to be initialised
+    assert _RESOLVE_SESSION is not None  # mypy / static checkers
+
+    async with _RESOLVE_SESSION() as sess:
+        result = await sess.execute(select(AppMetadataModel.connection_uri).where(AppMetadataModel.id == app_id))
+        connection_uri: Optional[str] = result.scalar_one_or_none()
+
+    # Store (even None) so that we don't hit the DB again for invalid IDs
+    _CONN_URI_CACHE[app_id] = connection_uri
+    return connection_uri
 
 
 async def get_database_for_app(app_id: str | None) -> PostgresDatabase:
@@ -94,6 +129,13 @@ async def get_database_for_app(app_id: str | None) -> PostgresDatabase:
     # ------------------------------------------------------------------
     connection_uri = await _resolve_connection_uri(app_id)
 
+    # If the resolved URI is identical to the control-plane DB we can simply
+    # reuse the existing pool instead of creating another one.  This covers
+    # Free / Pro customers that share the same logical database.
+    settings = get_settings()
+    if connection_uri == settings.POSTGRES_URI:
+        return await get_database_for_app(None)  # type: ignore[return-value]
+
     # Fallback to control-plane DB when catalogue entry is missing (shouldn't
     # happen in normal operation but avoids 500s due to mis-configuration).
     if not connection_uri:
@@ -122,6 +164,11 @@ async def get_vector_store_for_app(app_id: str | None):
     # sslmode=require and uses the asyncpg driver.
 
     uri = await _resolve_connection_uri(app_id)
+
+    # Free / Pro plans share the control-plane database –> reuse shared store
+    settings = get_settings()
+    if uri == settings.POSTGRES_URI:
+        return await get_vector_store_for_app(None)
 
     from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -219,6 +266,10 @@ async def get_multi_vector_store_for_app(app_id: str | None):
     # 2) Cached? –> quick return
     # ------------------------------------------------------------------
     uri = await _resolve_connection_uri(app_id)
+
+    # Free / Pro plans share the control-plane DB – reuse shared store
+    if uri == settings.POSTGRES_URI:
+        return await get_multi_vector_store_for_app(None)
 
     # Fallback (should not normally happen)
     if uri is None:
