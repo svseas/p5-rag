@@ -147,8 +147,22 @@ FastAPIInstrumentor.instrument_app(
 # Initialize service
 settings = get_settings()
 
-# Add SessionMiddleware
-app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
+# ---------------------------------------------------------------------------
+# Session cookie settings
+#   • Self-hosted / local dev  → default Starlette behaviour (SameSite=Lax)
+#   • Cloud (separate frontend & api domains) → SameSite=None; Secure so the
+#     browser will include the cookie in cross-site requests (e.g. api ↔ www).
+# ---------------------------------------------------------------------------
+
+if settings.MODE == "cloud":
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.SESSION_SECRET_KEY,
+        same_site="none",  # Allow cross-site requests
+        https_only=True,  # Cookie is Secure (required when SameSite=None)
+    )
+else:
+    app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
 
 # Initialize database
 if not settings.POSTGRES_URI:
