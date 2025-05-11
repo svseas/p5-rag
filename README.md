@@ -37,7 +37,7 @@ The best part? Morphik has a [free tier](https://www.morphik.ai/pricing) and is 
 
 ## Getting Started with Morphik (Recommended)
 
-The fastest and easiest way to get started with Morphik is by signing up for free at [Morphik](https://www.morphik.ai/signup). Your first 200 pages and 100 queries are on us! After this, you can pay based on usage with discounted rates for heavier use.
+The fastest and easiest way to get started with Morphik is by signing up for free at [Morphik](https://www.morphik.ai/signup). We have a generous free tier and transparent, compute-usage based pricing if you're looking to ingest a lot of data.
 
 ## Self-hosting the open-source version
 

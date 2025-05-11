@@ -30,6 +30,7 @@ def get_system_message() -> Dict[str, str]:
 3. Be clear and concise in your answers
 4. When relevant, cite specific parts of the context to support your answers
 5. For image-based queries, analyze the visual content in conjunction with any text context provided
+6. Format your responses using Markdown.
 
 Remember: Your primary goal is to provide accurate, context-aware responses that help users understand
 and utilize the information in their documents effectively.""",

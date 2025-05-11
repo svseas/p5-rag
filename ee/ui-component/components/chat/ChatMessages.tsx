@@ -4,6 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Spin } from "./icons";
 import Image from "next/image";
 import { Source } from "@/components/types";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import type { Options } from "react-markdown";
 
 // Define interface for the UIMessage - matching what our useMorphikChat hook returns
 export interface UIMessage {
@@ -76,7 +81,50 @@ export function PreviewMessage({ message }: Pick<MessageProps, "message">) {
                 message.role === "user" ? "ml-auto bg-primary text-primary-foreground" : "bg-muted"
               }`}
             >
-              <div className="prose prose-sm dark:prose-invert break-words">{message.content}</div>
+              <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                {message.role === "assistant" ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={
+                      {
+                        code(props) {
+                          const { children, className, node, ...rest } = props;
+                          const inline = !className?.includes("language-");
+                          const match = /language-(\w+)/.exec(className || "");
+
+                          if (!inline && match) {
+                            const language = match[1];
+                            return (
+                              <div className="my-4 overflow-hidden rounded-md">
+                                <SyntaxHighlighter style={oneDark} language={language} PreTag="div" className="!my-0">
+                                  {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                              </div>
+                            );
+                          } else if (!inline) {
+                            return (
+                              <div className="my-4 overflow-hidden rounded-md">
+                                <SyntaxHighlighter style={oneDark} language="text" PreTag="div" className="!my-0">
+                                  {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                              </div>
+                            );
+                          }
+                          return (
+                            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm" {...rest}>
+                              {children}
+                            </code>
+                          );
+                        },
+                      } as Options["components"]
+                    }
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                ) : (
+                  message.content // User messages rendered as plain text within prose-styled div
+                )}
+              </div>
             </div>
 
             {sources && sources.length > 0 && message.role === "assistant" && (
