@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -117,6 +118,10 @@ async def get_initiate_auth_url(
         if app_redirect_uri:
             request.session["app_redirect_uri"] = app_redirect_uri
 
+        # Store AuthContext for the callback as a JSON string
+        auth_context_json_str = service.auth_context.model_dump_json()  # Use .model_dump_json()
+        request.session["oauth_auth_context_json"] = auth_context_json_str  # Store as JSON string
+
         logger.info("Prepared auth URL for '%s' for user '%s'.", connector_type, service.user_identifier)
 
         return {"authorization_url": authorization_url}
@@ -141,7 +146,6 @@ async def connector_oauth_callback(
     state: Optional[str] = None,  # State from query parameters
     error: Optional[str] = None,  # Optional error from OAuth provider
     error_description: Optional[str] = None,  # Optional error description
-    service: ConnectorService = Depends(get_connector_service),
 ):
     """
     Handles the OAuth 2.0 callback from the authentication provider.
@@ -154,18 +158,18 @@ async def connector_oauth_callback(
 
     if error:
         logger.error(f"OAuth provider returned error for '{connector_type}': {error} - {error_description}")
-        # You might want to redirect to a frontend error page here
         raise HTTPException(status_code=400, detail=f"OAuth provider error: {error_description or error}")
 
+    # --- Session Data Retrieval and Validation ---
     stored_state = request.session.pop("oauth_state", None)
     stored_connector_type = request.session.pop("connector_type_for_callback", None)
+    auth_context_json_str = request.session.pop("oauth_auth_context_json", None)
 
     if not stored_state or not state or stored_state != state:
         logger.error(
             f"OAuth state mismatch for '{connector_type}'. Expected: '{stored_state}', "
             f"Received: '{state}'. IP: {request.client.host if request.client else 'unknown'}"
         )
-        # Redirect to an error page or show a generic error
         raise HTTPException(status_code=400, detail="Invalid OAuth state. Authentication failed.")
 
     if not stored_connector_type or stored_connector_type != connector_type:
@@ -174,33 +178,47 @@ async def connector_oauth_callback(
         )
         raise HTTPException(status_code=400, detail="Connector type mismatch during OAuth callback.")
 
+    if not auth_context_json_str:
+        logger.error(f"AuthContext not found in session during OAuth callback for '{connector_type}'.")
+        raise HTTPException(status_code=400, detail="Authentication context missing. Please restart the auth flow.")
+
+    # --- Service and Connector Initialization ---
+    try:
+        auth_context = AuthContext(**json.loads(auth_context_json_str))
+        service = ConnectorService(auth_context=auth_context)
+        # connector variable will be defined by calling service.get_connector
+        # but we need to ensure it's done within a try block that can handle connector-specific errors.
+    except Exception as e:  # Covers AuthContext reconstruction and ConnectorService instantiation
+        logger.error(f"Failed to reconstruct AuthContext or instantiate ConnectorService: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error during authentication setup.")
+
+    # --- Code Validation (can now use service.user_identifier if needed in logs) ---
     if not code:
-        logger.error(f"Authorization code not found in OAuth callback for '{connector_type}'.")
+        user_id_for_log = service.user_identifier if "service" in locals() else "unknown user"
+        logger.error(
+            f"Authorization code not found in OAuth callback for '{connector_type}' for user '{user_id_for_log}'."
+        )
         raise HTTPException(status_code=400, detail="Authorization code missing from provider callback.")
 
     # Reconstruct the full authorization response URL that the provider redirected to.
-    # The `google-auth-oauthlib` flow.fetch_token expects the full URL.
     authorization_response_url = str(request.url)
     logger.debug(f"Full authorization_response_url for '{connector_type}': {authorization_response_url}")
 
     try:
+        # Now get the connector, as service is initialized
         connector = await service.get_connector(connector_type)
 
-        # The `finalize_auth` method expects a dictionary with the full response URL and the validated state.
         auth_data = {
             "authorization_response_url": authorization_response_url,
-            "state": state,  # Pass the received (and validated) state to the connector
+            "state": state,
         }
 
-        success = await connector.finalize_auth(auth_data)
+        success = await connector.finalize_auth(auth_data)  # Correctly call on connector
 
         if success:
             logger.info(
                 f"Successfully finalized authentication for '{connector_type}' for user '{service.user_identifier}'."
             )
-            # In a real app, redirect to a frontend page indicating success
-            # For example: return RedirectResponse(url="/profile?auth_success="+connector_type)
-            # Redirect to the frontend connections page with a success indicator
             app_redirect_uri = request.session.pop("app_redirect_uri", None)
             if app_redirect_uri:
                 logger.info(f"Redirecting to frontend app_redirect_uri: {app_redirect_uri}")
@@ -219,18 +237,18 @@ async def connector_oauth_callback(
                 f"Failed to finalize auth for '{connector_type}' with user '{service.user_identifier}' "
                 f"(connector returned False)."
             )
-            # Redirect to a frontend error page
             raise HTTPException(status_code=500, detail="Failed to finalize authentication with the provider.")
 
-    except ValueError as ve:  # Raised by get_connector or if connector has issues not caught by its finalize_auth
+    except ValueError as ve:
         logger.error(f"Error during OAuth callback for '{connector_type}' for user '{service.user_identifier}': {ve}")
         raise HTTPException(status_code=400, detail=str(ve))
     except NotImplementedError:
         logger.error(f"Connector '{connector_type}' is not fully implemented for auth finalization.")
         raise HTTPException(status_code=501, detail=f"Connector '{connector_type}' not fully implemented.")
     except Exception as e:
+        user_id_for_log = service.user_identifier if "service" in locals() else "unknown user"
         logger.exception(
-            f"Unexpected error during OAuth callback for '{connector_type}' for user '{service.user_identifier}': {e}"
+            f"Unexpected error during OAuth callback for '{connector_type}' for user '{user_id_for_log}': {e}"
         )
         raise HTTPException(status_code=500, detail="Internal server error during authentication callback.")
 
