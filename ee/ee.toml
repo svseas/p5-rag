@@ -1,4 +1,4 @@
-morphik-host = "localhost:8000"
+morphik-host = "api.morphik.ai"
 
 # EE-specific configurations
 
