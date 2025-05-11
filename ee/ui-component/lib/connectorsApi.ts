@@ -6,8 +6,16 @@ export interface ConnectorAuthStatus {
 }
 
 // Fetches the authentication status for a given connector type
-export async function getConnectorAuthStatus(apiBaseUrl: string, connectorType: string): Promise<ConnectorAuthStatus> {
-  const response = await fetch(`${apiBaseUrl}/ee/connectors/${connectorType}/auth_status`);
+export async function getConnectorAuthStatus(
+  apiBaseUrl: string,
+  connectorType: string,
+  authToken: string | null
+): Promise<ConnectorAuthStatus> {
+  const response = await fetch(`${apiBaseUrl}/ee/connectors/${connectorType}/auth_status`, {
+    headers: {
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+  });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
@@ -19,21 +27,66 @@ export async function getConnectorAuthStatus(apiBaseUrl: string, connectorType: 
 
 // Initiates the authentication process by redirecting the user
 // The backend will handle the actual redirect to the OAuth provider
-export function initiateConnectorAuth(apiBaseUrl: string, connectorType: string, appRedirectUri: string): void {
-  // The backend /auth/initiate endpoint itself performs a redirect.
-  // So, navigating to it will trigger the OAuth flow.
-  // We add the app_redirect_uri for the backend to use after successful callback.
-  const initiateUrl = new URL(`${apiBaseUrl}/ee/connectors/${connectorType}/auth/initiate`);
-  initiateUrl.searchParams.append("app_redirect_uri", appRedirectUri);
-  window.location.href = initiateUrl.toString();
+export async function initiateConnectorAuth(
+  apiBaseUrl: string,
+  connectorType: string,
+  appRedirectUri: string,
+  authToken: string | null
+): Promise<void> {
+  // Use the *initiate_url* helper which returns a JSON payload containing the
+  // provider's authorization_url.  This avoids CORS issues with opaque
+  // redirects when the backend directly issues a 30x to a third-party domain.
+
+  const helperUrl = new URL(`${apiBaseUrl}/ee/connectors/${connectorType}/auth/initiate_url`);
+  helperUrl.searchParams.append("app_redirect_uri", appRedirectUri);
+
+  try {
+    const resp = await fetch(helperUrl.toString(), {
+      method: "GET",
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      credentials: "include",
+    });
+
+    if (!resp.ok) {
+      let detail = "";
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const errBody = await resp.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        detail = (errBody as any)?.detail || "";
+      } catch {
+        /* ignore */
+      }
+      throw new Error(`Failed to initiate auth flow: ${resp.status} ${resp.statusText} ${detail}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const data: { authorization_url: string } = await resp.json();
+    if (!data.authorization_url) {
+      throw new Error("Backend did not return authorization_url");
+    }
+
+    // Finally navigate to the provider's OAuth consent page
+    window.location.href = data.authorization_url;
+  } catch (err) {
+    console.error("Error initiating connector auth:", err);
+    throw err;
+  }
 }
 
 // Disconnects a connector for the current user
-export async function disconnectConnector(apiBaseUrl: string, connectorType: string): Promise<void> {
+export async function disconnectConnector(
+  apiBaseUrl: string,
+  connectorType: string,
+  authToken: string | null
+): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/ee/connectors/${connectorType}/disconnect`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
   });
   if (!response.ok) {
@@ -59,6 +112,7 @@ export interface ConnectorFile {
 export async function listConnectorFiles(
   apiBaseUrl: string,
   connectorType: string,
+  authToken: string | null,
   path: string | null,
   pageToken?: string,
   q_filter?: string,
@@ -81,7 +135,7 @@ export async function listConnectorFiles(
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      // TODO: Add authorization headers if required by your API setup
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
   });
 
@@ -103,6 +157,7 @@ interface IngestionOptions {
 export async function ingestConnectorFile(
   apiBaseUrl: string,
   connectorType: string,
+  authToken: string | null,
   fileId: string,
   // Replace displayName with ingestionOptions
   options?: IngestionOptions
@@ -121,7 +176,7 @@ export async function ingestConnectorFile(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // TODO: Add authorization headers if required
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
     body: JSON.stringify(body),
   });

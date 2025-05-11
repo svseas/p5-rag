@@ -24,6 +24,7 @@ const DEFAULT_PAGE_SIZE = 20;
 interface FileBrowserProps {
   connectorType: string;
   apiBaseUrl: string;
+  authToken: string | null;
   onFileIngest: (fileId: string, fileName: string, connectorType: string) => void; // Added connectorType
   initialPath?: string | null; // Allow null for root
   // onPathChange?: (newPath: string | null, newPathName: string | null) => void; // Optional: if parent needs to know
@@ -37,6 +38,7 @@ interface PathCrumb {
 export function FileBrowser({
   connectorType,
   apiBaseUrl,
+  authToken,
   onFileIngest,
   initialPath = null, // Default to null for root
 }: FileBrowserProps) {
@@ -60,6 +62,7 @@ export function FileBrowser({
         const result = await listConnectorFiles(
           apiBaseUrl,
           connectorType,
+          authToken,
           pathId, // API function handles 'root' case if pathId is 'root' or null
           pageToken,
           undefined,
@@ -75,7 +78,7 @@ export function FileBrowser({
         setIsLoading(false);
       }
     },
-    [apiBaseUrl, connectorType]
+    [apiBaseUrl, connectorType, authToken]
   );
 
   useEffect(() => {

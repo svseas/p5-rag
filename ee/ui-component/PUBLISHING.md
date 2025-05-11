@@ -26,47 +26,14 @@ This document provides instructions for publishing the @morphik/ui package to np
    npm run build:package
    ```
 
-4. Run a dry-run to check the package contents
+4. Pack it
 
    ```bash
-   npm pack --dry-run
+   npm pack
    ```
 
-5. Publish the package
+5. Publish the package (or copy to clouds)
 
    ```bash
    npm publish --access public
    ```
-
-6. Create a git tag for the release
-   ```bash
-   git tag v$(node -p "require('./package.json').version")
-   git push origin v$(node -p "require('./package.json').version")
-   ```
-
-## Installing for Local Development
-
-If you want to test the package locally before publishing, you can use npm link:
-
-1. In the ui-component directory:
-
-   ```bash
-   npm link
-   ```
-
-2. In your project that uses the package:
-   ```bash
-   npm link @morphik/ui
-   ```
-
-Alternatively, you can install from a local directory:
-
-```bash
-npm install /path/to/morphik-core/ui-component
-```
-
-Or from a GitHub repository:
-
-```bash
-npm install github:morphik-org/morphik-core#subdirectory=ui-component
-```

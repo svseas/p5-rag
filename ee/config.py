@@ -69,4 +69,36 @@ def get_ee_settings() -> EESettings:
     if config_from_toml.get("GOOGLE_TOKEN_STORAGE_PATH"):
         settings_kwargs["GOOGLE_TOKEN_STORAGE_PATH"] = config_from_toml["GOOGLE_TOKEN_STORAGE_PATH"]
 
+    # -------------------------------------------------------------------------
+    # Derive a sensible default GOOGLE_REDIRECT_URI based on the *core* config.
+    #   • If the value has already been provided via env or ee.toml we leave it
+    #     untouched (handled above).
+    #   • Otherwise we look at the global Morphik MODE setting.  In **cloud**
+    #     mode the public API is expected to be served from the configured
+    #     `API_DOMAIN` (default: api.morphik.ai).  For **self_hosted** mode we
+    #     fall back to the traditional localhost development URI.
+    # -------------------------------------------------------------------------
+    if "GOOGLE_REDIRECT_URI" not in settings_kwargs:
+        try:
+            # Import lazily to avoid any potential circular dependency issues
+            from core.config import get_settings  # pylint: disable=import-error
+
+            core_settings = get_settings()
+
+            if getattr(core_settings, "MODE", "self_hosted") == "cloud":
+                api_domain = getattr(core_settings, "API_DOMAIN", "api.morphik.ai")
+                derived_redirect = f"https://{api_domain}/ee/connectors/google_drive/oauth2callback"
+            else:
+                # Default for local/self-hosted development
+                derived_redirect = "http://localhost:8000/ee/connectors/google_drive/oauth2callback"
+
+            settings_kwargs["GOOGLE_REDIRECT_URI"] = derived_redirect
+        except Exception:
+            # In case the core settings cannot be loaded for any reason we keep
+            # the safe localhost default to avoid breaking startup.
+            settings_kwargs.setdefault(
+                "GOOGLE_REDIRECT_URI",
+                "http://localhost:8000/ee/connectors/google_drive/oauth2callback",
+            )
+
     return EESettings(**settings_kwargs)

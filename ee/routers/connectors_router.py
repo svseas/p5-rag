@@ -82,17 +82,20 @@ async def get_auth_status_for_connector(
         raise HTTPException(status_code=500, detail="An internal server error occurred.")
 
 
-@router.get("/{connector_type}/auth/initiate")  # No specific response model, as it redirects
-async def initiate_connector_authentication(
-    request: Request,  # FastAPI Request object to access session
+@router.get("/{connector_type}/auth/initiate_url", response_model=Dict[str, str])
+async def get_initiate_auth_url(
+    request: Request,
     connector_type: str,
-    app_redirect_uri: Optional[str] = None,  # New parameter for frontend redirect
+    app_redirect_uri: Optional[str] = None,
     service: ConnectorService = Depends(get_connector_service),
 ):
+    """Return the provider's *authorization_url* for the given connector.
+
+    The method mirrors the logic of the `/auth/initiate` endpoint but sends a
+    JSON payload instead of a redirect so that browsers can stay on the same
+    origin until they intentionally navigate away.
     """
-    Initiates the OAuth 2.0 authentication flow for the specified connector.
-    Stores state in session and redirects user to the provider's authorization URL.
-    """
+
     try:
         connector = await service.get_connector(connector_type)
         auth_details = await connector.initiate_auth()
@@ -102,42 +105,32 @@ async def initiate_connector_authentication(
 
         if not authorization_url or not state:
             logger.error(
-                f"Connector '{connector_type}' did not return authorization URL or state "
-                f"for user '{service.user_identifier}'."
+                "Connector '%s' did not return authorization URL or state for user '%s'.",
+                connector_type,
+                service.user_identifier,
             )
             raise HTTPException(status_code=500, detail="Failed to initiate authentication with the provider.")
 
-        # Store state and connector type in session for later validation in the callback
+        # Store state and connector type in session for later validation.
         request.session["oauth_state"] = state
         request.session["connector_type_for_callback"] = connector_type
         if app_redirect_uri:
             request.session["app_redirect_uri"] = app_redirect_uri
-            logger.info(f"Stored app_redirect_uri in session: {app_redirect_uri}")
 
-        logger.info(
-            f"Initiating auth for '{connector_type}' for user '{service.user_identifier}'. "
-            f"Redirecting to: {authorization_url[:70]}..."
-        )
-        return RedirectResponse(url=authorization_url)
+        logger.info("Prepared auth URL for '%s' for user '%s'.", connector_type, service.user_identifier)
 
-    except ValueError as ve:  # Raised by get_connector for unsupported type or by connector for config issues
-        logger.warning(f"Auth initiation for '{connector_type}' failed: {ve} for user '{service.user_identifier}'")
-        # Determine if it's a 404 (unsupported) or 500 (config error within connector)
+        return {"authorization_url": authorization_url}
+
+    except ValueError as ve:
+        logger.warning("Auth URL preparation for '%s' failed: %s", connector_type, ve)
         if "Unsupported connector type" in str(ve):
             raise HTTPException(status_code=404, detail=str(ve))
-        else:
-            # E.g. Google Client ID/Secret not configured in GoogleDriveConnector
-            raise HTTPException(
-                status_code=500, detail=f"Configuration error for connector '{connector_type}': {str(ve)}"
-            )
+        raise HTTPException(status_code=500, detail=str(ve))
     except NotImplementedError:
-        logger.error(f"Connector '{connector_type}' is not fully implemented for auth initiation.")
         raise HTTPException(status_code=501, detail=f"Connector '{connector_type}' not fully implemented.")
-    except Exception as e:
-        logger.exception(
-            f"Error initiating auth for connector '{connector_type}' for user '{service.user_identifier}': {e}"
-        )
-        raise HTTPException(status_code=500, detail="Internal server error initiating authentication.")
+    except Exception as exc:
+        logger.exception("Error preparing auth URL for '%s': %s", connector_type, exc)
+        raise HTTPException(status_code=500, detail="Internal server error preparing authentication URL.")
 
 
 @router.get("/{connector_type}/oauth2callback")

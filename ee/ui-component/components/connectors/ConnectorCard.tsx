@@ -20,9 +20,16 @@ interface ConnectorCardProps {
   displayName: string;
   icon?: React.ElementType;
   apiBaseUrl: string;
+  authToken: string | null;
 }
 
-export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon, apiBaseUrl }: ConnectorCardProps) {
+export function ConnectorCard({
+  connectorType,
+  displayName,
+  icon: ConnectorIcon,
+  apiBaseUrl,
+  authToken,
+}: ConnectorCardProps) {
   const [authStatus, setAuthStatus] = useState<ConnectorAuthStatus | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +47,7 @@ export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon,
     setIsLoading(true);
     setError(null);
     try {
-      const status = await getConnectorAuthStatus(apiBaseUrl, connectorType);
+      const status = await getConnectorAuthStatus(apiBaseUrl, connectorType, authToken);
       setAuthStatus(status);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unknown error occurred while fetching status.");
@@ -48,7 +55,7 @@ export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon,
     } finally {
       setIsLoading(false);
     }
-  }, [apiBaseUrl, connectorType]);
+  }, [apiBaseUrl, connectorType, authToken]);
 
   useEffect(() => {
     fetchStatus();
@@ -62,7 +69,7 @@ export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon,
       const connectionsSectionUrl = new URL(window.location.origin);
       connectionsSectionUrl.pathname = "/"; // Ensure we are at the root path
       connectionsSectionUrl.searchParams.set("section", "connections");
-      initiateConnectorAuth(apiBaseUrl, connectorType, connectionsSectionUrl.toString());
+      initiateConnectorAuth(apiBaseUrl, connectorType, connectionsSectionUrl.toString(), authToken);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to initiate connection.");
       setIsSubmitting(false);
@@ -73,7 +80,7 @@ export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon,
     setError(null);
     setIsSubmitting(true);
     try {
-      await disconnectConnector(apiBaseUrl, connectorType);
+      await disconnectConnector(apiBaseUrl, connectorType, authToken);
       await fetchStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to disconnect.");
@@ -102,7 +109,7 @@ export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon,
     try {
       // Pass metadata and rules to ingestConnectorFile
       // Note: ingestConnectorFile in lib/connectorsApi.ts will need to be updated to accept these
-      const result = await ingestConnectorFile(apiBaseUrl, connectorType, ingestionTargetFileId, {
+      const result = await ingestConnectorFile(apiBaseUrl, connectorType, authToken, ingestionTargetFileId, {
         metadata: JSON.parse(ingestionMetadata),
         rules: JSON.parse(ingestionRules),
         // morphikFolderName and morphikEndUserId can be added here if there are UI elements to collect them
@@ -222,7 +229,12 @@ export function ConnectorCard({ connectorType, displayName, icon: ConnectorIcon,
             <DialogTitle>Browse Files: {displayName}</DialogTitle>
           </DialogHeader>
           <div className="flex-grow overflow-auto py-4">
-            <FileBrowser connectorType={connectorType} apiBaseUrl={apiBaseUrl} onFileIngest={handleFileIngest} />
+            <FileBrowser
+              connectorType={connectorType}
+              apiBaseUrl={apiBaseUrl}
+              authToken={authToken}
+              onFileIngest={handleFileIngest}
+            />
           </div>
           <DialogFooter className="mt-auto">
             <DialogClose asChild>

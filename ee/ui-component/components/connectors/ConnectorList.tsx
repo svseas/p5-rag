@@ -22,9 +22,10 @@ const availableConnectors = [
 
 interface ConnectorListProps {
   apiBaseUrl: string; // Added apiBaseUrl prop
+  authToken: string | null;
 }
 
-export function ConnectorList({ apiBaseUrl }: ConnectorListProps) {
+export function ConnectorList({ apiBaseUrl, authToken }: ConnectorListProps) {
   if (availableConnectors.length === 0) {
     return (
       <div className="text-center text-muted-foreground">
@@ -42,6 +43,7 @@ export function ConnectorList({ apiBaseUrl }: ConnectorListProps) {
           displayName={connector.displayName}
           icon={connector.icon}
           apiBaseUrl={apiBaseUrl} // Pass apiBaseUrl down
+          authToken={authToken} // Pass authToken down
         />
       ))}
     </div>

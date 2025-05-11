@@ -153,7 +153,7 @@ const MorphikUI: React.FC<MorphikUIProps> = ({
         {activeSection === "connections" && (
           <div className="h-full overflow-auto p-4 md:p-6">
             {/* Wrapper div for consistent padding and full height */}
-            <ConnectorList apiBaseUrl={effectiveApiBaseUrl} />
+            <ConnectorList apiBaseUrl={effectiveApiBaseUrl} authToken={authToken} />
           </div>
         )}
       </main>
