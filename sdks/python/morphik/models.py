@@ -303,15 +303,15 @@ class Graph(BaseModel):
 
     @property
     def is_processing(self) -> bool:
-        return self.status == "processing"
+        return self.system_metadata.get("status") == "processing"
 
     @property
     def is_completed(self) -> bool:
-        return self.status == "completed"
+        return self.system_metadata.get("status") == "completed"
 
     @property
     def is_failed(self) -> bool:
-        return self.status == "failed"
+        return self.system_metadata.get("status") == "failed"
 
     @property
     def error(self) -> str | None:

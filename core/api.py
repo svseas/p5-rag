@@ -115,7 +115,7 @@ async def lifespan(app_instance: FastAPI):
     if pool_to_close:
         logger.info("Closing Redis connection pool from lifespan...")
         pool_to_close.close()
-        await pool_to_close.wait_closed()
+        # await pool_to_close.wait_closed()
         logger.info("Redis connection pool closed from lifespan.")
     logger.info("Lifespan: Shutdown complete.")
 
@@ -281,9 +281,10 @@ try:
     from ee.routers import init_app as _init_ee_app  # type: ignore
 
     _init_ee_app(app)  # noqa: SLF001 – runtime extension
-except ModuleNotFoundError:
+except ModuleNotFoundError as e:
     # Expected in OSS builds – silently ignore.
     logger.debug("Enterprise package not found – running in community mode.")
+    logger.error(f"ModuleNotFoundError: {e}", exc_info=True)
 except ImportError as e:
     logger.error(f"Failed to import init_app from ee.routers: {e}", exc_info=True)
 except Exception as e:
