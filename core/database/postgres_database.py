@@ -112,6 +112,30 @@ def _serialize_datetime(obj: Any) -> Any:
 class PostgresDatabase(BaseDatabase):
     """PostgreSQL implementation for document metadata storage."""
 
+    async def delete_folder(self, folder_id: str, auth: AuthContext) -> bool:
+        """Delete a folder row if user has admin access."""
+        try:
+            # Fetch the folder to check permissions
+            folder = await self.get_folder(folder_id, auth)
+            if not folder:
+                logger.error(f"Folder {folder_id} not found or user does not have access")
+                return False
+            if not self._check_folder_access(folder, auth, "admin"):
+                logger.error(f"User does not have admin access to folder {folder_id}")
+                return False
+            async with self.async_session() as session:
+                folder_model = await session.get(FolderModel, folder_id)
+                if not folder_model:
+                    logger.error(f"Folder {folder_id} not found in database")
+                    return False
+                await session.delete(folder_model)
+                await session.commit()
+                logger.info(f"Deleted folder {folder_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting folder: {e}")
+            return False
+
     def __init__(
         self,
         uri: str,

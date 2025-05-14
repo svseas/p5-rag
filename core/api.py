@@ -1523,6 +1523,7 @@ async def create_graph(
 
 
 @app.post("/folders", response_model=Folder)
+@telemetry.track(operation_type="create_folder", metadata_resolver=telemetry.create_folder_metadata)
 async def create_folder(
     folder_create: FolderCreate,
     auth: AuthContext = Depends(verify_token),
@@ -1538,58 +1539,52 @@ async def create_folder(
         Folder: Created folder
     """
     try:
-        async with telemetry.track_operation(
-            operation_type="create_folder",
-            user_id=auth.entity_id,
-            metadata={
-                "name": folder_create.name,
+        # Create a folder object with explicit ID
+        import uuid
+
+        folder_id = str(uuid.uuid4())
+        logger.info(f"Creating folder with ID: {folder_id}, auth.user_id: {auth.user_id}")
+
+        # Set up access control with user_id
+        access_control = {
+            "readers": [auth.entity_id],
+            "writers": [auth.entity_id],
+            "admins": [auth.entity_id],
+        }
+
+        if auth.user_id:
+            access_control["user_id"] = [auth.user_id]
+            logger.info(f"Adding user_id {auth.user_id} to folder access control")
+
+        folder = Folder(
+            id=folder_id,
+            name=folder_create.name,
+            description=folder_create.description,
+            owner={
+                "type": auth.entity_type.value,
+                "id": auth.entity_id,
             },
-        ):
-            # Create a folder object with explicit ID
-            import uuid
+            access_control=access_control,
+        )
 
-            folder_id = str(uuid.uuid4())
-            logger.info(f"Creating folder with ID: {folder_id}, auth.user_id: {auth.user_id}")
+        # Scope folder to the application ID for developer tokens
+        if auth.app_id:
+            folder.system_metadata["app_id"] = auth.app_id
 
-            # Set up access control with user_id
-            access_control = {
-                "readers": [auth.entity_id],
-                "writers": [auth.entity_id],
-                "admins": [auth.entity_id],
-            }
+        # Store in database
+        success = await document_service.db.create_folder(folder)
 
-            if auth.user_id:
-                access_control["user_id"] = [auth.user_id]
-                logger.info(f"Adding user_id {auth.user_id} to folder access control")
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to create folder")
 
-            folder = Folder(
-                id=folder_id,
-                name=folder_create.name,
-                description=folder_create.description,
-                owner={
-                    "type": auth.entity_type.value,
-                    "id": auth.entity_id,
-                },
-                access_control=access_control,
-            )
-
-            # Scope folder to the application ID for developer tokens
-            if auth.app_id:
-                folder.system_metadata["app_id"] = auth.app_id
-
-            # Store in database
-            success = await document_service.db.create_folder(folder)
-
-            if not success:
-                raise HTTPException(status_code=500, detail="Failed to create folder")
-
-            return folder
+        return folder
     except Exception as e:
         logger.error(f"Error creating folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/folders", response_model=List[Folder])
+@telemetry.track(operation_type="list_folders", metadata_resolver=telemetry.list_folders_metadata)
 async def list_folders(
     auth: AuthContext = Depends(verify_token),
 ) -> List[Folder]:
@@ -1603,18 +1598,15 @@ async def list_folders(
         List[Folder]: List of folders
     """
     try:
-        async with telemetry.track_operation(
-            operation_type="list_folders",
-            user_id=auth.entity_id,
-        ):
-            folders = await document_service.db.list_folders(auth)
-            return folders
+        folders = await document_service.db.list_folders(auth)
+        return folders
     except Exception as e:
         logger.error(f"Error listing folders: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/folders/{folder_id}", response_model=Folder)
+@telemetry.track(operation_type="get_folder", metadata_resolver=telemetry.get_folder_metadata)
 async def get_folder(
     folder_id: str,
     auth: AuthContext = Depends(verify_token),
@@ -1630,19 +1622,12 @@ async def get_folder(
         Folder: Folder if found and accessible
     """
     try:
-        async with telemetry.track_operation(
-            operation_type="get_folder",
-            user_id=auth.entity_id,
-            metadata={
-                "folder_id": folder_id,
-            },
-        ):
-            folder = await document_service.db.get_folder(folder_id, auth)
+        folder = await document_service.db.get_folder(folder_id, auth)
 
-            if not folder:
-                raise HTTPException(status_code=404, detail=f"Folder {folder_id} not found")
+        if not folder:
+            raise HTTPException(status_code=404, detail=f"Folder {folder_id} not found")
 
-            return folder
+        return folder
     except HTTPException:
         raise
     except Exception as e:
@@ -1650,7 +1635,63 @@ async def get_folder(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/folders/{folder_name}")
+@telemetry.track(operation_type="delete_folder", metadata_resolver=telemetry.delete_folder_metadata)
+async def delete_folder(
+    folder_name: str,
+    auth: AuthContext = Depends(verify_token),
+):
+    """
+    Delete a folder and all associated documents.
+
+    Args:
+        folder_name: Name of the folder to delete
+        auth: Authentication context (must have write access to the folder)
+
+    Returns:
+        Deletion status
+    """
+    try:
+        folder = await document_service.db.get_folder_by_name(folder_name, auth)
+        folder_id = folder.id
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+        document_ids = folder.document_ids
+        tasks = [remove_document_from_folder(folder_id, document_id, auth) for document_id in document_ids]
+        results = await asyncio.gather(*tasks)
+        stati = [res.get("status", False) for res in results]
+        if not all(stati):
+            failed = [doc for doc, stat in zip(document_ids, stati) if not stat]
+            msg = "Failed to remove the following documents from folder: " + ", ".join(failed)
+            logger.error(msg)
+            raise HTTPException(status_code=500, detail=msg)
+
+        # folder is empty now
+        delete_tasks = [document_service.db.delete_document(document_id, auth) for document_id in document_ids]
+        stati = await asyncio.gather(*delete_tasks)
+        if not all(stati):
+            failed = [doc for doc, stat in zip(document_ids, stati) if not stat]
+            msg = "Failed to delete the following documents: " + ", ".join(failed)
+            logger.error(msg)
+            raise HTTPException(status_code=500, detail=msg)
+
+        db: PostgresDatabase = document_service.db
+        # just remove the folder too now.
+        status = await db.delete_folder(folder_id, auth)
+        if not status:
+            logger.error(f"Failed to delete folder {folder_id}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete folder {folder_id}")
+        return {"status": "success", "message": f"Folder {folder_id} deleted successfully"}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error deleting folder: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/folders/{folder_id}/documents/{document_id}")
+@telemetry.track(operation_type="add_document_to_folder", metadata_resolver=telemetry.add_document_to_folder_metadata)
 async def add_document_to_folder(
     folder_id: str,
     document_id: str,
@@ -1668,26 +1709,21 @@ async def add_document_to_folder(
         Success status
     """
     try:
-        async with telemetry.track_operation(
-            operation_type="add_document_to_folder",
-            user_id=auth.entity_id,
-            metadata={
-                "folder_id": folder_id,
-                "document_id": document_id,
-            },
-        ):
-            success = await document_service.db.add_document_to_folder(folder_id, document_id, auth)
+        success = await document_service.db.add_document_to_folder(folder_id, document_id, auth)
 
-            if not success:
-                raise HTTPException(status_code=500, detail="Failed to add document to folder")
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to add document to folder")
 
-            return {"status": "success"}
+        return {"status": "success"}
     except Exception as e:
         logger.error(f"Error adding document to folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/folders/{folder_id}/documents/{document_id}")
+@telemetry.track(
+    operation_type="remove_document_from_folder", metadata_resolver=telemetry.remove_document_from_folder_metadata
+)
 async def remove_document_from_folder(
     folder_id: str,
     document_id: str,
@@ -1705,20 +1741,12 @@ async def remove_document_from_folder(
         Success status
     """
     try:
-        async with telemetry.track_operation(
-            operation_type="remove_document_from_folder",
-            user_id=auth.entity_id,
-            metadata={
-                "folder_id": folder_id,
-                "document_id": document_id,
-            },
-        ):
-            success = await document_service.db.remove_document_from_folder(folder_id, document_id, auth)
+        success = await document_service.db.remove_document_from_folder(folder_id, document_id, auth)
 
-            if not success:
-                raise HTTPException(status_code=500, detail="Failed to remove document from folder")
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to remove document from folder")
 
-            return {"status": "success"}
+        return {"status": "success"}
     except Exception as e:
         logger.error(f"Error removing document from folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))

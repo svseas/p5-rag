@@ -568,6 +568,45 @@ class TelemetryService:
             MetadataField("use_reranking", "request"),
         ]
 
+        # Folder operation metadata extractors
+        self.create_folder_metadata = MetadataExtractor(
+            [
+                MetadataField("name", "request"),
+                MetadataField("description", "request"),
+                MetadataField("owner_id", "kwargs", "auth", transform=lambda auth: getattr(auth, "entity_id", None)),
+            ]
+        )
+        self.list_folders_metadata = MetadataExtractor(
+            [
+                MetadataField("user_id", "kwargs", "auth", transform=lambda auth: getattr(auth, "entity_id", None)),
+            ]
+        )
+        self.get_folder_metadata = MetadataExtractor(
+            [
+                MetadataField("folder_id", "kwargs"),
+                MetadataField("user_id", "kwargs", "auth", transform=lambda auth: getattr(auth, "entity_id", None)),
+            ]
+        )
+        self.add_document_to_folder_metadata = MetadataExtractor(
+            [
+                MetadataField("folder_id", "kwargs"),
+                MetadataField("document_id", "kwargs"),
+                MetadataField("user_id", "kwargs", "auth", transform=lambda auth: getattr(auth, "entity_id", None)),
+            ]
+        )
+        self.remove_document_from_folder_metadata = MetadataExtractor(
+            [
+                MetadataField("folder_id", "kwargs"),
+                MetadataField("document_id", "kwargs"),
+                MetadataField("user_id", "kwargs", "auth", transform=lambda auth: getattr(auth, "entity_id", None)),
+            ]
+        )
+        self.delete_folder_metadata = MetadataExtractor(
+            [
+                MetadataField("folder_id", "kwargs"),
+                MetadataField("user_id", "kwargs", "auth", transform=lambda auth: getattr(auth, "entity_id", None)),
+            ]
+        )
         # Set up all the metadata extractors
         self.ingest_text_metadata = MetadataExtractor(
             common_request_fields
