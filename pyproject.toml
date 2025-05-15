@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "anthropic>=0.51.0",
     "arq>=0.26.3",
     "assemblyai>=0.40.2",
     "asyncio>=3.4.3",
@@ -23,12 +24,16 @@ dependencies = [
     "instructor>=1.8.1",
     "itsdangerous>=2.2.0",
     "litellm>=1.69.1",
+    "ollama>=0.4.8",
+    "openai>=1.75.0",
     "opencv-python>=4.11.0.86",
     "opentelemetry-exporter-otlp>=1.33.0",
     "opentelemetry-instrumentation-fastapi>=0.54b0",
     "pdf2image>=1.17.0",
     "pgvector>=0.4.1",
-    "psycopg>=3.2.8",
+    "psycopg>=3.2.9",
+    "psycopg-binary>=3.2.9",
+    "psycopg2-binary>=2.9.9",
     "pydantic>=2.11.4",
     "pydantic-settings>=2.9.1",
     "pytest>=8.3.5",
@@ -39,7 +44,9 @@ dependencies = [
     "stripe>=12.1.0",
     "toml>=0.10.2",
     "tomli>=2.2.1",
-    "torch>=2.7.0",
+    "torch==2.5.1",
+    "torchaudio==2.5.1",
+    "torchvision==0.20.1",
     "unstructured[pdf]>=0.17.2",
     "uvicorn>=0.34.2",
 ]

@@ -147,3 +147,11 @@ class NeonClient:
         if not uris:
             raise NeonAPIError("create_branch response did not include connection_uris", details=branch_resp)
         return uris[0]
+
+    async def delete_project(self, project_id: str) -> None:
+        """Delete an existing Neon *project_id* permanently.
+
+        Neon responds with 202/204 on success.  We intentionally ignore the
+        response body and rely on the status code check inside *_request*.
+        """
+        await self._request("DELETE", f"/projects/{project_id}")

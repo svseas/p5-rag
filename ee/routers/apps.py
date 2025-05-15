@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict
 
 import toml
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 
 from core.auth_utils import verify_token
@@ -49,6 +49,11 @@ class CreateAppResponse(BaseModel):  # noqa: D101 – simple schema
     app_name: str
     morphik_uri: str
     status: str
+
+
+class NukeAppResponse(BaseModel):  # noqa: D101 – simple schema
+    app_name: str
+    status: str = "deleted"
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +160,53 @@ async def create_app_route(
         # Record the new app in the user's limits profile
         await user_service.register_app(auth.user_id, result.app_id)
 
+    except ValueError as ve:
+        # duplicate name or other validation from service
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as exc:  # noqa: BLE001 – capture NeonAPIError and others
         logger.exception("Failed to provision new app: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to provision app") from exc
 
     return result.as_dict()
+
+
+# ---------------------------------------------------------------------------
+# Delete / Nuke endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/apps",
+    response_model=NukeAppResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=True,
+)
+async def delete_app_route(
+    app_name: str = Query(..., description="Name of the application to delete"),
+    auth: AuthContext = Depends(verify_token),
+) -> Dict[str, str]:
+    """Destroy the Neon project and metadata associated with *app_name*.
+
+    Only the owner of the application (identified via *auth.user_id*) may
+    perform this destructive action.
+    """
+
+    # Ensure authentication has user_id (in dev mode it is generated)
+    if not auth.user_id:
+        raise HTTPException(status_code=403, detail="Missing user_id in token – cannot delete app")
+
+    # Perform the heavy lifting via the service layer
+    service = AppProvisioningService()
+    await service.initialize()
+
+    try:
+        await service.nuke_app_by_name(auth.user_id, app_name)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not authorised to delete this app")
+    except RuntimeError:
+        raise HTTPException(status_code=404, detail="App not found")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to delete app: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to delete app") from exc
+
+    return {"app_name": app_name, "status": "deleted"}

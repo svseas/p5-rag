@@ -311,6 +311,48 @@ class UserLimitsDatabase:
             logger.error(f"Failed to register app: {e}")
             return False
 
+    async def unregister_app(self, user_id: str, app_id: str) -> bool:
+        """Remove *app_id* from the user's *app_ids* list.
+
+        Returns ``True`` on success (or if the app was already absent).
+        """
+        try:
+            now = datetime.now(UTC).isoformat()
+
+            async with self.async_session() as session:
+                # Use the jsonb "-" operator which natively removes the first
+                # occurrence of a matching string element from a JSONB array.
+                # This avoids complex casts and the "polymorphic type unknown"
+                # errors we observed with to_jsonb().
+                query = text(
+                    """
+                    UPDATE user_limits
+                    SET app_ids = app_ids - :app_id,
+                        updated_at = :now
+                    WHERE user_id = :user_id
+                    RETURNING app_ids;
+                    """
+                )
+
+                result = await session.execute(
+                    query, {"app_id": app_id, "now": now, "user_id": user_id}
+                )
+
+                updated_app_ids = result.scalar()
+                logger.info(
+                    "Unregistered app_id %s for user %s. Remaining apps: %s",
+                    app_id,
+                    user_id,
+                    updated_app_ids,
+                )
+
+                await session.commit()
+                return True
+
+        except Exception as e:
+            logger.error(f"Failed to unregister app: {e}")
+            return False
+
     async def update_usage(self, user_id: str, usage_type: str, increment: int = 1) -> bool:
         """
         Update usage counter for a user.

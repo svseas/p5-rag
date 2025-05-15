@@ -15,6 +15,7 @@ import jwt
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
 
 from core.config import get_settings
 from core.models.app_metadata import AppMetadataModel
@@ -116,6 +117,35 @@ def create_s3_bucket(bucket_name, region=DEFAULT_REGION):
     logger.debug(f"Bucket {bucket_name} created successfully in {region} region.")
 
 
+def delete_s3_bucket(bucket_name: str) -> None:
+    """Completely remove *bucket_name* and its contents if it exists.
+
+    We silently ignore *NoSuchBucket* errors so callers can treat the
+    operation as idempotent.
+    """
+    try:
+        # Explicit session to avoid leaking global credentials just like in
+        # *create_s3_bucket* above.
+        session = boto3.Session(
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.getenv("AWS_REGION", DEFAULT_REGION),
+        )
+        s3 = session.resource("s3")
+        bucket = s3.Bucket(bucket_name)
+        # Delete all objects first – required before bucket deletion.
+        bucket.objects.all().delete()
+        bucket.delete()
+        logger.info("Deleted S3 bucket %s", bucket_name)
+    except botocore.exceptions.ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code")
+        # 404 / NoSuchBucket – treat as success because bucket is already gone.
+        if error_code not in ("404", "NoSuchBucket"):
+            logger.warning("Failed to delete bucket %s: %s", bucket_name, exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unexpected error deleting bucket %s: %s", bucket_name, exc)
+
+
 # ---------------------------------------------------------------------------
 # Main service
 # ---------------------------------------------------------------------------
@@ -173,6 +203,18 @@ class AppProvisioningService:  # noqa: D101 – obvious from name
         schema must run Alembic with `-x db_url=<uri>` *after* obtaining the
         result.
         """
+        # ------------------------------------------------------------------
+        # 0) Ensure *app_name* is unique for the caller --------------------
+        # ------------------------------------------------------------------
+        async with self._async_session() as session:
+            stmt = select(AppMetadataModel.id).where(
+                AppMetadataModel.user_id == user_id,
+                AppMetadataModel.app_name == app_name,
+            )
+            existing = await session.execute(stmt)
+            if existing.scalar_one_or_none() is not None:
+                raise ValueError("An application with this name already exists – please choose a new name")
+
         if not region:
             region = "aws-us-east-1"
 
@@ -368,3 +410,78 @@ class AppProvisioningService:  # noqa: D101 – obvious from name
             await self._neon_client.close()
         finally:
             await self._engine.dispose()
+
+    # ------------------------------------------------------------------
+    # New teardown helper – reverses *provision_new_app*
+    # ------------------------------------------------------------------
+
+    async def nuke_app(self, user_id: str, app_id: str) -> None:  # noqa: D401
+        """Completely remove a provisioned application.
+
+        Steps:
+        1. Look up *app_metadata* to fetch the Neon project id.
+        2. Delete the Neon project via the Neon API.
+        3. Drop the dedicated S3 bucket (best-effort).
+        4. Remove rows from *app_metadata* **and** *apps*.
+        """
+        await self.initialize()
+
+        # ------------------------------------------------------------------
+        # 1) Fetch metadata and verify ownership
+        # ------------------------------------------------------------------
+        async with self._async_session() as session:
+            metadata_obj = await session.get(AppMetadataModel, app_id)
+            if metadata_obj is None:
+                raise RuntimeError(f"App {app_id} not found")
+            if metadata_obj.user_id != user_id:
+                raise PermissionError("You do not own this application")
+            neon_project_id = metadata_obj.neon_project_id
+
+        # ------------------------------------------------------------------
+        # 2) Attempt to delete the Neon project (irreversible)
+        # ------------------------------------------------------------------
+        try:
+            await self._neon_client.delete_project(neon_project_id)
+            logger.info("Neon project %s deleted", neon_project_id)
+        except Exception as exc:  # noqa: BLE001
+            # Log but continue – we still want to clean local metadata even if
+            # the remote project is already gone.
+            logger.warning("Failed to delete Neon project %s: %s", neon_project_id, exc)
+
+        # ------------------------------------------------------------------
+        # 3) Delete associated S3 bucket (best effort)
+        # ------------------------------------------------------------------
+        bucket_name = f"morphik-{neon_project_id}"
+        delete_s3_bucket(bucket_name)
+
+        # ------------------------------------------------------------------
+        # 4) Remove metadata rows
+        # ------------------------------------------------------------------
+        from sqlalchemy import delete as sa_delete  # Imported lazily to avoid pollution
+
+        async with self._async_session() as session:
+            await session.execute(sa_delete(AppMetadataModel).where(AppMetadataModel.id == app_id))
+            await session.execute(sa_delete(AppModel).where(AppModel.app_id == app_id))
+            await session.commit()
+
+        # ------------------------------------------------------------------
+        # 5) Update user limits – remove app_id from list -------------------
+        # ------------------------------------------------------------------
+        from core.services.user_service import UserService  # Local import to avoid cycles
+
+        user_service = UserService()
+        await user_service.initialize()
+        await user_service.unregister_app(user_id, app_id)
+
+    async def nuke_app_by_name(self, user_id: str, app_name: str) -> None:
+        """Resolve *app_name* to its ID and delegate to :meth:`nuke_app`."""
+        async with self._async_session() as session:
+            stmt = select(AppMetadataModel.id).where(
+                AppMetadataModel.user_id == user_id,
+                AppMetadataModel.app_name == app_name,
+            )
+            result = await session.execute(stmt)
+            app_id = result.scalar_one_or_none()
+        if app_id is None:
+            raise RuntimeError("App not found")
+        await self.nuke_app(user_id, app_id)

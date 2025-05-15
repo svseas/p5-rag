@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 import arq
 import jwt
 import tomli
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware  # Import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.sessions import SessionMiddleware
@@ -27,7 +27,7 @@ from core.embedding.colpali_api_embedding_model import ColpaliApiEmbeddingModel
 from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
 from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
 from core.limits_utils import check_and_increment_limits, estimate_pages_by_chars
-from core.models.auth import AuthContext
+from core.models.auth import AuthContext, EntityType
 from core.models.completion import ChunkSource, CompletionResponse
 from core.models.documents import ChunkResult, Document, DocumentResult
 from core.models.folders import Folder, FolderCreate
@@ -2210,3 +2210,104 @@ async def set_folder_rule(
     except Exception as e:
         logger.error(f"Error setting folder rules: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Cloud – delete application (control-plane only)
+# ---------------------------------------------------------------------------
+
+
+@app.delete("/cloud/apps")
+async def delete_cloud_app(
+    app_name: str = Query(..., description="Name of the application to delete"),
+    auth: AuthContext = Depends(verify_token),
+) -> Dict[str, Any]:
+    """Delete *all* resources associated with *app_name* for the calling user.
+
+    This removes:
+    • All documents linked to the application's ``app_id`` (includes chunks & S3
+      via existing delete_document flow).
+    • The *apps* table entry.
+    • The reference in *user_limits.app_ids*.
+    """
+
+    user_id = auth.user_id or auth.entity_id
+    logger.info(f"Deleting app {app_name} for user {user_id}")
+
+    from core.models.apps import AppModel
+    from sqlalchemy import select, delete as sa_delete
+    from core.services.user_service import UserService
+
+    # 1) Resolve app_id from apps table ----------------------------------
+    async with document_service.db.async_session() as session:
+        stmt = select(AppModel).where(AppModel.user_id == user_id, AppModel.name == app_name)
+        res = await session.execute(stmt)
+        app_row = res.scalar_one_or_none()
+
+    if app_row is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    app_id = app_row.app_id
+
+    # ------------------------------------------------------------------
+    # Create an AuthContext scoped to *this* application so that the
+    # underlying access-control filters in the database layer allow us to
+    # see and delete resources that belong to the app – even if the JWT
+    # used to call this endpoint was scoped to a *different* app.
+    # ------------------------------------------------------------------
+
+    if auth.entity_type == EntityType.DEVELOPER:
+        app_auth = AuthContext(
+            entity_type=auth.entity_type,
+            entity_id=auth.entity_id,
+            app_id=app_id,
+            permissions=auth.permissions or {"read", "write", "admin"},
+            user_id=auth.user_id,
+        )
+    else:
+        app_auth = auth
+
+    # 2) Delete all documents for this app ------------------------------
+    # ------------------------------------------------------------------
+    # Fetch ALL documents for *this* app using the app-scoped auth.
+    # ------------------------------------------------------------------
+    doc_ids = await document_service.db.find_authorized_and_filtered_documents(app_auth)
+
+    deleted = 0
+    for doc_id in doc_ids:
+        try:
+            await document_service.delete_document(doc_id, app_auth)
+            deleted += 1
+        except Exception as exc:
+            logger.warning("Failed to delete document %s for app %s: %s", doc_id, app_id, exc)
+
+    # 3) Delete folders associated with this app -----------------------
+    # ------------------------------------------------------------------
+    # Fetch ALL folders for *this* app using the same app-scoped auth.
+    # ------------------------------------------------------------------
+    folder_ids_deleted = 0
+    folders = await document_service.db.list_folders(app_auth)
+
+    for folder in folders:
+        try:
+            await document_service.db.delete_folder(folder.id, app_auth)
+            folder_ids_deleted += 1
+        except Exception as f_exc:  # noqa: BLE001
+            logger.warning("Failed to delete folder %s for app %s: %s", folder.id, app_id, f_exc)
+
+    # 4) Remove apps table entry ---------------------------------------
+    async with document_service.db.async_session() as session:
+        await session.execute(sa_delete(AppModel).where(AppModel.app_id == app_id))
+        await session.commit()
+
+    # 5) Update user_limits --------------------------------------------
+    user_service = UserService()
+    await user_service.initialize()
+    await user_service.unregister_app(user_id, app_id)
+
+    return {
+        "app_name": app_name,
+        "status": "deleted",
+        "documents_deleted": deleted,
+        "folders_deleted": folder_ids_deleted,
+    }
