@@ -11,6 +11,7 @@ dependencies = [
     "asyncio>=3.4.3",
     "asyncpg>=0.30.0",
     "boto3>=1.38.14",
+    "build>=1.2.2.post1",
     "dotenv>=0.9.9",
     "fastapi>=0.115.12",
     "filetype>=1.2.0",
@@ -24,6 +25,7 @@ dependencies = [
     "instructor>=1.8.1",
     "itsdangerous>=2.2.0",
     "litellm>=1.69.1",
+    "morphik>=0.1.9",
     "ollama>=0.4.8",
     "openai>=1.75.0",
     "opencv-python>=4.11.0.86",
@@ -47,6 +49,7 @@ dependencies = [
     "torch==2.5.1",
     "torchaudio==2.5.1",
     "torchvision==0.20.1",
+    "twine>=6.1.0",
     "unstructured[pdf]>=0.17.2",
     "uvicorn>=0.34.2",
 ]

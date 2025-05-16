@@ -474,27 +474,23 @@ class Folder:
         self,
         sources: List[Union[ChunkSource, Dict[str, Any]]],
         additional_folders: Optional[List[str]] = None,
+        use_colpali: bool = True,
     ) -> List[FinalChunkResult]:
         """
-        Retrieve specific chunks by their document ID and chunk number in a single batch operation within this folder.
+        Retrieve specific chunks by their document ID and chunk number in this folder.
 
         Args:
             sources: List of ChunkSource objects or dictionaries with document_id and chunk_number
             additional_folders: Optional list of extra folders to include in the scope
+            use_colpali: Whether to request multimodal chunks when available
 
         Returns:
             List[FinalChunkResult]: List of chunk results
         """
-        # Convert to list of dictionaries if needed
-        source_dicts = []
-        for source in sources:
-            if isinstance(source, dict):
-                source_dicts.append(source)
-            else:
-                source_dicts.append(source.model_dump())
-
         merged = self._merge_folders(additional_folders)
-        request = {"sources": source_dicts, "folder_name": merged}
+        request = self._client._logic._prepare_batch_get_chunks_request(
+            sources, merged, None, use_colpali
+        )
 
         response = self._client._request("POST", "batch/chunks", data=request)
         return self._client._logic._parse_chunk_result_list_response(response)
@@ -1078,30 +1074,23 @@ class UserScope:
         self,
         sources: List[Union[ChunkSource, Dict[str, Any]]],
         additional_folders: Optional[List[str]] = None,
+        use_colpali: bool = True,
     ) -> List[FinalChunkResult]:
         """
-        Retrieve specific chunks by their document ID and chunk number in a single batch operation for this end user.
+        Retrieve specific chunks by their document ID and chunk number in this folder.
 
         Args:
             sources: List of ChunkSource objects or dictionaries with document_id and chunk_number
             additional_folders: Optional list of extra folders to include in the scope
+            use_colpali: Whether to request multimodal chunks when available
 
         Returns:
             List[FinalChunkResult]: List of chunk results
         """
-        # Convert to list of dictionaries if needed
-        source_dicts = []
-        for source in sources:
-            if isinstance(source, dict):
-                source_dicts.append(source)
-            else:
-                source_dicts.append(source.model_dump())
-
         merged = self._merge_folders(additional_folders)
-        request = {"sources": source_dicts, "end_user_id": self._end_user_id}
-
-        if merged:
-            request["folder_name"] = merged
+        request = self._client._logic._prepare_batch_get_chunks_request(
+            sources, merged, None, use_colpali
+        )
 
         response = self._client._request("POST", "batch/chunks", data=request)
         return self._client._logic._parse_chunk_result_list_response(response)
@@ -2344,7 +2333,10 @@ class Morphik:
         return docs
 
     def batch_get_chunks(
-        self, sources: List[Union[ChunkSource, Dict[str, Any]]], folder_name: Optional[Union[str, List[str]]] = None
+        self,
+        sources: List[Union[ChunkSource, Dict[str, Any]]],
+        folder_name: Optional[Union[str, List[str]]] = None,
+        use_colpali: bool = True,
     ) -> List[FinalChunkResult]:
         """
         Retrieve specific chunks by their document ID and chunk number.
@@ -2376,7 +2368,9 @@ class Morphik:
                 print(f"Chunk from {chunk.document_id}, number {chunk.chunk_number}: {chunk.content[:50]}...")
             ```
         """
-        request = self._logic._prepare_batch_get_chunks_request(sources, folder_name, None)
+        request = self._logic._prepare_batch_get_chunks_request(
+            sources, folder_name, None, use_colpali
+        )
         response = self._request("POST", "batch/chunks", data=request)
         return self._logic._parse_chunk_result_list_response(response)
 

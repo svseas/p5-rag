@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from core.api import get_settings
@@ -129,17 +130,34 @@ async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
     core.api.database = test_database
 
     # Also update the vector store if it uses the same database (for pgvector)
+    test_vector_store_instance = core.api.vector_store
     if settings.VECTOR_STORE_PROVIDER == "pgvector":
         from core.vector_store.pgvector_store import PGVectorStore
+        from core.vector_store.multi_vector_store import MultiVectorStore  # Added import
 
         # Create a new vector store with the test URI
-        test_vector_store = PGVectorStore(uri=TEST_POSTGRES_URI)
+        test_vector_store_instance = PGVectorStore(uri=TEST_POSTGRES_URI)
 
         # Initialize the vector store database
-        await test_vector_store.initialize()
+        test_vector_store_instance.initialize()
 
         # Replace the global vector store with our test version
-        core.api.vector_store = test_vector_store
+        core.api.vector_store = test_vector_store_instance
+
+    # Initialize Colpali vector store if enabled and using pgvector
+    test_colpali_vector_store_instance = core.api.colpali_vector_store
+    if settings.ENABLE_COLPALI:
+        # Removed incorrect import of PGVectorStore, MultiVectorStore is imported above
+
+        logger.info(f"Re-initializing Colpali MultiVectorStore with URI: {TEST_POSTGRES_URI}")  # Log message updated
+        test_colpali_vector_store_instance = MultiVectorStore(  # Changed to MultiVectorStore
+            uri=TEST_POSTGRES_URI
+        )
+        test_colpali_vector_store_instance.initialize()
+        core.api.colpali_vector_store = test_colpali_vector_store_instance
+        logger.info("Colpali MultiVectorStore re-initialized and replaced.")  # Log message updated
+    else:
+        logger.info("Colpali is not enabled, skipping Colpali vector store re-initialization.")
 
     # Initialize Redis connection pool for testing
     import arq.connections
@@ -153,6 +171,7 @@ async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
         redis_pool = await arq.create_pool(redis_settings)
         # Replace the global redis_pool with our test version
         core.api.redis_pool = redis_pool
+        app.state.redis_pool = redis_pool  # Make it available on app.state
         logger.info("Redis connection pool created successfully for tests")
     except Exception as e:
         logger.error(f"Failed to create Redis connection pool for tests: {str(e)}")
@@ -163,7 +182,7 @@ async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
     from core.api import (
         cache_factory,
         colpali_embedding_model,
-        colpali_vector_store,
+        # colpali_vector_store,  # This is now test_colpali_vector_store_instance
         completion_model,
         embedding_model,
         parser,
@@ -174,7 +193,7 @@ async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
 
     test_document_service = DocumentService(
         database=test_database,
-        vector_store=core.api.vector_store,
+        vector_store=test_vector_store_instance,  # Use the potentially re-initialized instance
         parser=parser,
         embedding_model=embedding_model,
         completion_model=completion_model,
@@ -183,7 +202,7 @@ async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
         storage=storage,
         enable_colpali=settings.ENABLE_COLPALI,
         colpali_embedding_model=colpali_embedding_model,
-        colpali_vector_store=colpali_vector_store,
+        colpali_vector_store=test_colpali_vector_store_instance,  # Use the re-initialized Colpali store
     )
 
     # Replace the global document service with our test version
@@ -191,7 +210,7 @@ async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
 
     # Update the graph service if needed
     if hasattr(core.api, "graph_service"):
-        from core.api import completion_model
+        from core.api import completion_model  # embedding_model is already imported
         from core.services.graph_service import GraphService
 
         test_graph_service = GraphService(
@@ -1613,54 +1632,46 @@ async def test_query_with_reranking(client: AsyncClient):
 
 @pytest.fixture(scope="function", autouse=True)
 async def cleanup_graphs():
-    """Clean up graphs before each graph test"""
+    """Clean up graphs before each graph test. Assumes 'graphs' table exists."""
     # Create a fresh connection to the test database
     engine = create_async_engine(TEST_POSTGRES_URI)
     try:
         async with engine.begin() as conn:
-            # First check if the graphs table exists
+            # First check if the graphs table exists in the public schema
             result = await conn.execute(
                 text(
                     """
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables
-                    WHERE table_name = 'graphs'
-                );
-                """
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_name = 'graphs' AND table_schema = 'public'
+                    );
+                    """
                 )
             )
             table_exists = result.scalar()
 
             if table_exists:
-                # Only delete if the table exists
-                await conn.execute(text("DELETE FROM graphs"))
-                logger.info("Cleaned up all graph-related tables")
+                # If table exists, delete all rows from it
+                await conn.execute(text("DELETE FROM public.graphs"))
+                logger.info("Cleaned data from 'public.graphs' table.")
             else:
-                # Create the table if it doesn't exist
-                await conn.execute(
-                    text(
-                        """
-                        CREATE TABLE IF NOT EXISTS graphs (
-                            id VARCHAR PRIMARY KEY,
-                            name VARCHAR UNIQUE,
-                            entities JSONB DEFAULT '[]',
-                            relationships JSONB DEFAULT '[]',
-                            graph_metadata JSONB DEFAULT '{}',
-                            document_ids JSONB DEFAULT '[]',
-                            filters JSONB DEFAULT NULL,
-                            created_at VARCHAR,
-                            updated_at VARCHAR,
-                            owner JSONB DEFAULT '{}',
-                            access_control JSONB DEFAULT '{"readers": [], "writers": [], "admins": []}'
-                        );
-                        """
-                    )
+                # If table does not exist, this is a setup issue. Tests requiring it will fail.
+                # Log a critical error. Graph-related tests will likely fail.
+                # This fixture should not be responsible for creating schema.
+                logger.error(
+                    "CRITICAL: The 'public.graphs' table does not exist. "
+                    "This indicates an issue with the test database setup (migrations may not have run). "
+                    "Graph-related tests will likely fail. "
+                    "This fixture will NOT attempt to create the table."
                 )
-                await conn.execute(text("""CREATE INDEX IF NOT EXISTS idx_graph_name ON graphs(name);"""))
-                logger.info("Created graphs table as it did not exist")
-    except Exception as e:
-        logger.error(f"Failed to clean up graph tables: {e}")
+    except OperationalError as oe:  # Catch specific SQLAlchemy/DB driver operational errors
+        logger.error(f"Operational error during graph cleanup/check: {oe}. "
+                     "This might indicate a connection or DB setup issue (e.g., permissions, DB down).")
+        # Re-raise to make test failure clear, as this is a fundamental issue for tests.
         raise
+    except Exception as e:
+        logger.error(f"Unexpected error during graph cleanup: {e}")
+        raise  # Re-raise to make test fail clearly
     finally:
         await engine.dispose()
 

@@ -18,10 +18,23 @@ class UserService:
         """Initialize the UserService."""
         self.settings = get_settings()
         self.db = UserLimitsDatabase(uri=self.settings.POSTGRES_URI)
+        self._db_initialized = False  # Flag to track if self.db has been initialized
 
     async def initialize(self) -> bool:
-        """Initialize database tables."""
-        return await self.db.initialize()
+        """Initialize database tables for the user limits system if not already done."""
+        if self._db_initialized:
+            return True  # Already initialized for this UserService instance
+
+        # Attempt to initialize the database component (UserLimitsDatabase)
+        # UserLimitsDatabase.initialize() has its own internal _initialized flag
+        # to prevent its DDL from running multiple times for the same instance.
+        if await self.db.initialize():
+            self._db_initialized = True  # Mark as initialized for this UserService instance
+            logger.info("UserService: Database component initialized successfully.")
+            return True
+
+        logger.error("UserService: Failed to initialize database component.")
+        return False
 
     async def get_user_limits(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get user limits information."""

@@ -357,6 +357,7 @@ class _MorphikClientLogic:
         sources: List[Union[ChunkSource, Dict[str, Any]]],
         folder_name: Optional[Union[str, List[str]]],
         end_user_id: Optional[str],
+        use_colpali: bool = True,
     ) -> Dict[str, Any]:
         """Prepare request for batch_get_chunks endpoint"""
         source_dicts = []
@@ -366,15 +367,14 @@ class _MorphikClientLogic:
             else:
                 source_dicts.append(source.model_dump())
 
-        if folder_name or end_user_id:
-            request = {"sources": source_dicts}
-            if folder_name:
-                request["folder_name"] = folder_name
-            if end_user_id:
-                request["end_user_id"] = end_user_id
-            return request
-        # Return the dictionary structure { "sources": [...] } consistently.
-        return {"sources": source_dicts}
+        # Always include use_colpali flag so the server can decide how to
+        # enrich chunks.  Keep any additional scoping parameters.
+        request: Dict[str, Any] = {"sources": source_dicts, "use_colpali": use_colpali}
+        if folder_name:
+            request["folder_name"] = folder_name
+        if end_user_id:
+            request["end_user_id"] = end_user_id
+        return request
 
     def _prepare_create_graph_request(
         self,

@@ -1,5 +1,6 @@
 import logging
 from math import ceil
+from typing import Optional
 
 # Imports needed for check_and_increment_limits
 from fastapi import HTTPException
@@ -11,6 +12,32 @@ from core.services.user_service import UserService
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+
+# --- Shared UserService instance ---
+_user_service_instance: Optional[UserService] = None
+_user_service_initialized: bool = False
+
+
+async def get_initialized_user_service() -> UserService:
+    """Provides a shared, initialized instance of UserService."""
+    global _user_service_instance, _user_service_initialized
+
+    if _user_service_instance is None:
+        _user_service_instance = UserService()
+
+    if not _user_service_initialized:
+        logger.info("Initializing shared UserService instance for limits_utils...")
+        if await _user_service_instance.initialize():
+            _user_service_initialized = True
+            logger.info("Shared UserService instance initialized successfully.")
+        else:
+            # If initialization fails, log the error.
+            # Subsequent calls to check_limit/record_usage might fail or operate unexpectedly
+            # if the database isn't correctly set up.
+            logger.error("Failed to initialize shared UserService instance in limits_utils. Limits checking may be impaired.")
+            # We still return the instance; the UserService.initialize() itself logs errors from UserLimitsDatabase.
+
+    return _user_service_instance
 
 # ---------------------------------------------------------------------------
 # Helper constants & functions shared by ingestion and quota enforcement
@@ -87,10 +114,8 @@ async def check_and_increment_limits(
         logger.warning("User ID not available in auth context, skipping limit check")
         return
 
-    # Initialize user service
-    # from core.services.user_service import UserService # Already imported at module level
-    user_service = UserService()
-    await user_service.initialize()
+    # Get the shared, initialized UserService instance
+    user_service = await get_initialized_user_service()
 
     # Get user data to check tier
     user_data = await user_service.get_user_limits(auth.user_id)

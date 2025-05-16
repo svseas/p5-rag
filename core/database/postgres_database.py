@@ -42,6 +42,12 @@ class DocumentModel(Base):
         Index("idx_owner_id", "owner", postgresql_using="gin"),
         Index("idx_access_control", "access_control", postgresql_using="gin"),
         Index("idx_system_metadata", "system_metadata", postgresql_using="gin"),
+        Index("idx_doc_metadata_gin", "doc_metadata", postgresql_using="gin"),
+        Index("idx_doc_owner_text_id", text("(owner->>'id')")),
+        Index("idx_doc_system_metadata_app_id", text("(system_metadata->>'app_id')")),
+        Index("idx_doc_access_control_user_id", text("(access_control->>'user_id')")),
+        Index("idx_doc_system_metadata_folder_name", text("(system_metadata->>'folder_name')")),
+        Index("idx_doc_system_metadata_end_user_id", text("(system_metadata->>'end_user_id')")),
     )
 
 
@@ -225,34 +231,6 @@ class PostgresDatabase(BaseDatabase):
                         )
                     )
                     logger.info("Added storage_files column to documents table")
-
-                # Create indexes for folder_name, end_user_id and app_id in system_metadata for documents
-                await conn.execute(
-                    text(
-                        """
-                    CREATE INDEX IF NOT EXISTS idx_system_metadata_folder_name
-                    ON documents ((system_metadata->>'folder_name'));
-                    """
-                    )
-                )
-
-                await conn.execute(
-                    text(
-                        """
-                    CREATE INDEX IF NOT EXISTS idx_system_metadata_app_id
-                    ON documents ((system_metadata->>'app_id'));
-                    """
-                    )
-                )
-
-                await conn.execute(
-                    text(
-                        """
-                    CREATE INDEX IF NOT EXISTS idx_system_metadata_end_user_id
-                    ON documents ((system_metadata->>'end_user_id'));
-                    """
-                    )
-                )
 
                 # Create folders table if it doesn't exist
                 await conn.execute(
@@ -811,7 +789,7 @@ class PostgresDatabase(BaseDatabase):
 
         # Base clauses that will always be AND-ed with any additional application scoping.
         base_clauses = [
-            f"owner->>'id' = '{auth.entity_id}'",
+            f"owner @> '{{\"id\": \"{auth.entity_id}\"}}'::jsonb",  # Check owner using @>
             f"access_control->'readers' ? '{auth.entity_id}'",
             f"access_control->'writers' ? '{auth.entity_id}'",
             f"access_control->'admins' ? '{auth.entity_id}'",
@@ -819,7 +797,7 @@ class PostgresDatabase(BaseDatabase):
 
         # Developer token with app_id → restrict strictly by that app_id.
         if auth.entity_type == EntityType.DEVELOPER and auth.app_id:
-            filters = [f"system_metadata->>'app_id' = '{auth.app_id}'"]
+            filters = [f"system_metadata @> '{{\"app_id\": \"{auth.app_id}\"}}'::jsonb"]  # Check app_id using @>
         else:
             filters = base_clauses.copy()
 
@@ -827,7 +805,8 @@ class PostgresDatabase(BaseDatabase):
         # end-user isolation).
         if auth.user_id:
             if get_settings().MODE == "cloud":
-                filters.append(f"access_control->>'user_id' = '{auth.user_id}'")
+                # access_control.user_id is a list in the DocumentModel, so `?` is correct and uses the GIN index.
+                filters.append(f"access_control->'user_id' ? '{auth.user_id}'")
 
         return " OR ".join(filters)
 
@@ -843,33 +822,24 @@ class PostgresDatabase(BaseDatabase):
                 if not value:  # Skip empty lists
                     continue
 
-                # Build a list of properly escaped values
-                escaped_values = []
-                for item in value:
-                    if isinstance(item, bool):
-                        escaped_values.append(str(item).lower())
-                    elif isinstance(item, str):
-                        # Use standard replace, avoid complex f-string quoting for black
-                        escaped_value = item.replace("'", "''")
-                        escaped_values.append(f"'{escaped_value}'")
-                    else:
-                        escaped_values.append(f"'{item}'")
+                # New approach for lists: OR together multiple @> conditions
+                # This allows each item in the list to be checked for containment.
+                or_clauses_for_list = []
+                for item_in_list in value:
+                    json_filter_object = {key: item_in_list}
+                    json_string_for_sql = json.dumps(json_filter_object)
+                    sql_escaped_json_string = json_string_for_sql.replace("'", "''")
+                    or_clauses_for_list.append(f"doc_metadata @> '{sql_escaped_json_string}'::jsonb")
+                if or_clauses_for_list:
+                    filter_conditions.append(f"({' OR '.join(or_clauses_for_list)})")
 
-                # Join with commas for IN clause
-                values_str = ", ".join(escaped_values)
-                filter_conditions.append(f"doc_metadata->>'{key}' IN ({values_str})")
             else:
                 # Handle single value (equality)
-                # Convert boolean values to string 'true' or 'false'
-                if isinstance(value, bool):
-                    value = str(value).lower()
-
-                # Use proper SQL escaping for string values
-                if isinstance(value, str):
-                    # Replace single quotes with double single quotes to escape them
-                    value = value.replace("'", "''")
-
-                filter_conditions.append(f"doc_metadata->>'{key}' = '{value}'")
+                # New approach for single value: Use JSONB containment operator @>
+                json_filter_object = {key: value}
+                json_string_for_sql = json.dumps(json_filter_object)
+                sql_escaped_json_string = json_string_for_sql.replace("'", "''")
+                filter_conditions.append(f"doc_metadata @> '{sql_escaped_json_string}'::jsonb")
 
         return " AND ".join(filter_conditions)
 
@@ -902,17 +872,16 @@ class PostgresDatabase(BaseDatabase):
 
             value_clauses = []
             for item in values:
-                # Convert booleans to lowercase strings (they are stored as text)
-                if isinstance(item, bool):
-                    item_txt = str(item).lower()
-                else:
-                    item_txt = str(item)
-
-                # Escape single quotes
-                item_txt_escaped = item_txt.replace("'", "''")
-
-                # Simplify: Only check for direct equality using the ->> operator
-                value_clauses.append(f"(system_metadata->>'{key}' = '{item_txt_escaped}')")
+                # New approach: Use JSONB containment operator @>
+                # This allows matching native JSON types (boolean, number, string)
+                # and leverages the GIN index on the system_metadata column.
+                json_filter_object = {key: item}
+                # json.dumps will correctly format item as a JSON string, number, or boolean
+                json_string_for_sql = json.dumps(json_filter_object)
+                # Escape single quotes within the generated JSON string for SQL literal
+                sql_escaped_json_string = json_string_for_sql.replace("'", "''")
+                
+                value_clauses.append(f"system_metadata @> '{sql_escaped_json_string}'::jsonb")
 
             # OR all alternative values for this key, wrap in parentheses.
             key_clauses.append("(" + " OR ".join(value_clauses) + ")")
