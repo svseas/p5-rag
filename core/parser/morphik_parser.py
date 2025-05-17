@@ -262,11 +262,18 @@ class MorphikParser(BaseParser):
 
     async def _parse_document(self, file: bytes, filename: str) -> Tuple[Dict[str, Any], str]:
         """Parse document using unstructured"""
+        # Choose a lighter parsing strategy for text-based files. Using
+        # `hi_res` on plain PDFs/Word docs invokes OCR which can be 20-30×
+        # slower.  A simple extension check covers the majority of cases.
+        strategy = "hi_res"
+        if filename.lower().endswith((".pdf", ".doc", ".docx", ".txt")):
+            strategy = "fast"
+
         elements = partition(
             file=io.BytesIO(file),
             content_type=None,
             metadata_filename=filename,
-            strategy="hi_res",
+            strategy=strategy,
             api_key=self._unstructured_api_key if self.use_unstructured_api else None,
         )
 
