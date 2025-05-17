@@ -17,6 +17,7 @@ from core.tools.tools import (
     retrieve_document,
     save_to_memory,
 )
+from core.utils.agent_helpers import crop_images_in_display_objects, extract_display_object
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +63,34 @@ class MorphikAgent:
                 }
             )
 
+        content_guidelines = (
+            "for text objects, this is markdown content; for image objects, this is a description for the "
+        )
+        content_guidelines += (
+            "image, describing the exact part you want to extract from the source chunk. This description will be "
+        )
+        content_guidelines += "used to create a bounding box around the image and extract the image from the source chunk. Be as precise as possible. "
+        content_guidelines += "Use labels, diagram numbers, etc. where possible to be more precise. Please ensure that when you choose an image display "
+        content_guidelines += "object, the corresponding source is also an image."
+
+        example_response = """
+```json
+[
+  {
+    "type": "text",
+    "content": "## Introduction to the Topic\nHere is some detailed information...",
+    "source": "doc123-chunk1"
+  },
+  {
+    "type": "text",
+    "content": "This analysis shows that...",
+    "source": "doc456-chunk2"
+  }
+]
+```
+"""
         # System prompt
-        self.system_prompt = """
+        self.system_prompt = f"""
 You are Morphik, an intelligent research assistant. You can use the following tools to help answer user queries:
 - retrieve_chunks: retrieve relevant text and image chunks from the knowledge base
 - retrieve_document: get full document content or metadata
@@ -79,24 +106,11 @@ instead of providing a direct text response, you must return a structured respon
 
 Your response should be a JSON array of display objects, each with:
 1. "type": either "text" or "image"
-2. "content": for text objects, this is markdown content; for image objects, this is a base64-encoded image
+2. "content": {content_guidelines}
 3. "source": the source ID of the chunk where you found this information
 
 Example response format:
-```json
-[
-  {
-    "type": "text",
-    "content": "## Introduction to the Topic\nHere is some detailed information...",
-    "source": "doc123-chunk1"
-  },
-  {
-    "type": "text",
-    "content": "This analysis shows that...",
-    "source": "doc456-chunk2"
-  }
-]
-```
+{example_response}
 
 When you use retrieve_chunks, you'll get source IDs for each chunk. Use these IDs in your response.
 For example, if you see "Source ID: doc123-chunk4" for important information, attribute it in your response.
@@ -214,33 +228,34 @@ when citing different sources. Use markdown formatting for text content to impro
                             for item in parsed_content:
                                 if isinstance(item, dict) and "type" in item and "content" in item:
                                     # Convert to standardized display object format
-                                    display_obj = {
-                                        "type": item.get("type", "text"),
-                                        "content": item.get("content", ""),
-                                        "source": item.get("source", "agent-response"),
-                                    }
-                                    if "caption" in item and item["type"] == "image":
-                                        display_obj["caption"] = item["caption"]
-                                    if item["type"] == "image" and item.get("source") in source_map:
-                                        display_obj["content"] = source_map[item["source"]]["content"]
+                                    # display_obj = {
+                                    #     "type": item.get("type", "text"),
+                                    #     "content": item.get("content", ""),
+                                    #     "source": item.get("source", "agent-response"),
+                                    # }
+                                    # if "caption" in item and item["type"] == "image":
+                                    #     display_obj["caption"] = item["caption"]
+                                    # if item["type"] == "image" and item.get("source") in source_map:
+                                    #     display_obj["content"] = source_map[item["source"]]["content"]
+                                    display_obj = extract_display_object(item, source_map)
                                     display_objects.append(display_obj)
                         elif (
                             isinstance(parsed_content, dict)
                             and "type" in parsed_content
                             and "content" in parsed_content
                         ):
-                            # Single display object
-                            display_obj = {
-                                "type": parsed_content.get("type", "text"),
-                                "content": parsed_content.get("content", ""),
-                                "source": parsed_content.get("source", "agent-response"),
-                            }
-                            if "caption" in parsed_content and parsed_content["type"] == "image":
-                                display_obj["caption"] = parsed_content["caption"]
-                            if parsed_content.get("type") == "image" and parsed_content.get("source") in source_map:
-                                display_obj["content"] = source_map[parsed_content["source"]]["content"]
+                            # # Single display object
+                            # display_obj = {
+                            #     "type": parsed_content.get("type", "text"),
+                            #     "content": parsed_content.get("content", ""),
+                            #     "source": parsed_content.get("source", "agent-response"),
+                            # }
+                            # if "caption" in parsed_content and parsed_content["type"] == "image":
+                            #     display_obj["caption"] = parsed_content["caption"]
+                            # if parsed_content.get("type") == "image" and parsed_content.get("source") in source_map:
+                            #     display_obj["content"] = source_map[parsed_content["source"]]["content"]
+                            display_obj = extract_display_object(parsed_content, source_map)
                             display_objects.append(display_obj)
-
                     # If no display objects were created, treat the entire content as text
                     if not display_objects:
                         default_text = msg.content
@@ -305,6 +320,7 @@ when citing different sources. Use markdown formatting for text content to impro
                         )
 
                 # Return final content, tool history, display objects and sources
+                display_objects = crop_images_in_display_objects(display_objects)
                 return {
                     "response": msg.content,
                     "tool_history": tool_history,
