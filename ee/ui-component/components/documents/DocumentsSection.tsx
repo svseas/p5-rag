@@ -652,6 +652,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
       formData.append("file", fileToUploadRef);
       formData.append("metadata", metadataRef);
       formData.append("rules", rulesRef);
+      formData.append("use_colpali", String(useColpaliRef));
 
       // If we're in a specific folder (not "all" documents), add the folder_name to form data
       if (selectedFolder && selectedFolder !== "all") {
@@ -673,7 +674,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
         }
       }
 
-      const url = `${effectiveApiUrl}/ingest/file?use_colpali=${useColpaliRef}`;
+      const url = `${effectiveApiUrl}/ingest/file`;
 
       // Non-blocking fetch
       fetch(url, {
@@ -811,9 +812,9 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
 
       formData.append("rules", rulesRef);
       formData.append("parallel", "true");
+      formData.append("use_colpali", String(useColpaliRef));
 
-      // Always set explicit use_colpali value
-      const url = `${effectiveApiUrl}/ingest/files?use_colpali=${useColpaliRef}`;
+      const url = `${effectiveApiUrl}/ingest/files`;
 
       // Non-blocking fetch
       fetch(url, {
@@ -952,7 +953,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
 
     try {
       // Non-blocking fetch with explicit use_colpali parameter
-      const url = `${effectiveApiUrl}/ingest/text?use_colpali=${useColpaliRef}`;
+      const url = `${effectiveApiUrl}/ingest/text`;
 
       fetch(url, {
         method: "POST",
@@ -965,6 +966,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
           metadata: metadataObj,
           rules: JSON.parse(rulesRef || "[]"),
           folder_name: folderToUse,
+          use_colpali: useColpaliRef,
         }),
       })
         .then(response => {

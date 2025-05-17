@@ -3,29 +3,23 @@ import base64
 import json
 import logging
 import uuid
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import arq
 import jwt
 import tomli
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware  # Import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.sessions import SessionMiddleware
 
 from core.agent import MorphikAgent
+from core.app_factory import lifespan
 from core.auth_utils import verify_token
-from core.cache.llama_cache_factory import LlamaCacheFactory
-from core.completion.litellm_completion import LiteLLMCompletionModel
 from core.config import get_settings
 from core.database.postgres_database import PostgresDatabase
 from core.dependencies import get_redis_pool
-from core.embedding.colpali_api_embedding_model import ColpaliApiEmbeddingModel
-from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
-from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
 from core.limits_utils import check_and_increment_limits, estimate_pages_by_chars
 from core.models.auth import AuthContext, EntityType
 from core.models.completion import ChunkSource, CompletionResponse
@@ -44,251 +38,88 @@ from core.models.request import (
     SetFolderRuleRequest,
     UpdateGraphRequest,
 )
-from core.parser.morphik_parser import MorphikParser
-from core.reranker.flag_reranker import FlagReranker
-from core.services.document_service import DocumentService
 from core.services.telemetry import TelemetryService
-from core.storage.local_storage import LocalStorage
-from core.storage.s3_storage import S3Storage
-from core.vector_store.multi_vector_store import MultiVectorStore
-from core.vector_store.pgvector_store import PGVectorStore
+from core.services_init import document_service, storage
 
 # Initialize FastAPI app
 logger = logging.getLogger(__name__)
-
-# Global variable for redis_pool, primarily for shutdown if app.state access fails.
-_global_redis_pool: Optional[arq.ArqRedis] = None
-
-
-@asynccontextmanager
-async def lifespan(app_instance: FastAPI):
-    # --- BEGIN MOVED STARTUP LOGIC ---
-    logger.info("Lifespan: Initializing Database...")
-    try:
-        success = await database.initialize()
-        if success:
-            logger.info("Lifespan: Database initialization successful")
-        else:
-            logger.error("Lifespan: Database initialization failed")
-    except Exception as e:
-        logger.error(f"Lifespan: CRITICAL - Failed to initialize Database: {e}", exc_info=True)
-        raise  # Or handle more gracefully if appropriate
-
-    logger.info("Lifespan: Initializing Vector Store...")
-    try:
-        global vector_store
-        if hasattr(vector_store, "initialize"):
-            await vector_store.initialize()
-        logger.info("Lifespan: Vector Store initialization successful (or not applicable).")
-    except Exception as e:
-        logger.error(f"Lifespan: CRITICAL - Failed to initialize Vector Store: {e}", exc_info=True)
-        # Decide if this is fatal
-        # raise
-
-    logger.info("Lifespan: Attempting to initialize Redis connection pool...")
-    global _global_redis_pool  # Ensure we're using the global for assignment
-    try:
-        redis_settings_obj = arq.connections.RedisSettings(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-        )
-        logger.info(f"Lifespan: Redis settings for pool: host={settings.REDIS_HOST}, port={settings.REDIS_PORT}")
-        current_redis_pool = await arq.create_pool(redis_settings_obj)
-        if current_redis_pool:
-            app_instance.state.redis_pool = current_redis_pool  # Use app_instance from lifespan
-            _global_redis_pool = current_redis_pool
-            logger.info("Lifespan: Successfully initialized Redis connection pool and stored on app.state.")
-        else:
-            logger.error("Lifespan: arq.create_pool returned None or a falsey value for Redis pool.")
-            raise RuntimeError("Lifespan: Failed to create Redis pool - arq.create_pool returned non-truthy value.")
-    except Exception as e:
-        logger.error(f"Lifespan: CRITICAL - Failed to initialize Redis connection pool: {e}", exc_info=True)
-        raise RuntimeError(f"Lifespan: CRITICAL - Failed to initialize Redis connection pool: {e}") from e
-    # --- END MOVED STARTUP LOGIC ---
-
-    logger.info("Lifespan: Core startup logic executed.")
-    yield
-    # Shutdown logic
-    logger.info("Lifespan: Shutdown initiated.")
-    # Use app_instance.state to get the pool for shutdown too
-    pool_to_close = getattr(app_instance.state, "redis_pool", _global_redis_pool)
-    if pool_to_close:
-        logger.info("Closing Redis connection pool from lifespan...")
-        pool_to_close.close()
-        # await pool_to_close.wait_closed()
-        logger.info("Redis connection pool closed from lifespan.")
-    logger.info("Lifespan: Shutdown complete.")
-
+# ---------------------------------------------------------------------------
+# Application instance & core initialisation (moved lifespan, rest unchanged)
+# ---------------------------------------------------------------------------
 
 app = FastAPI(lifespan=lifespan)
 
-# Add CORSMiddleware
+# Add CORS middleware (same behaviour as before refactor)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Initialize telemetry
+# Initialise telemetry service
 telemetry = TelemetryService()
 
-# Add OpenTelemetry instrumentation - exclude HTTP send/receive spans
+# OpenTelemetry instrumentation – exclude noisy spans/headers
 FastAPIInstrumentor.instrument_app(
     app,
-    excluded_urls="health,health/.*",  # Exclude health check endpoints
-    exclude_spans=["send", "receive"],  # Exclude HTTP send/receive spans to reduce telemetry volume
-    http_capture_headers_server_request=None,  # Don't capture request headers
-    http_capture_headers_server_response=None,  # Don't capture response headers
-    tracer_provider=None,  # Use the global tracer provider
+    excluded_urls="health,health/.*",
+    exclude_spans=["send", "receive"],
+    http_capture_headers_server_request=None,
+    http_capture_headers_server_response=None,
+    tracer_provider=None,
 )
 
-# Initialize service
+# Global settings object
 settings = get_settings()
 
 # ---------------------------------------------------------------------------
-# Session cookie settings
-#   • Self-hosted / local dev  → default Starlette behaviour (SameSite=Lax)
-#   • Cloud (separate frontend & api domains) → SameSite=None; Secure so the
-#     browser will include the cookie in cross-site requests (e.g. api ↔ www).
+# Session cookie behaviour differs between cloud / self-hosted
 # ---------------------------------------------------------------------------
 
 if settings.MODE == "cloud":
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.SESSION_SECRET_KEY,
-        same_site="none",  # Allow cross-site requests
-        https_only=True,  # Cookie is Secure (required when SameSite=None)
+        same_site="none",
+        https_only=True,
     )
 else:
     app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
 
-# Initialize database
-if not settings.POSTGRES_URI:
-    raise ValueError("PostgreSQL URI is required for PostgreSQL database")
-database = PostgresDatabase(uri=settings.POSTGRES_URI)
 
-# Initialize vector store
-if not settings.POSTGRES_URI:
-    raise ValueError("PostgreSQL URI is required for pgvector store")
+# Simple health check endpoint
+@app.get("/ping")
+async def ping_health():
+    """Simple health check endpoint that returns 200 OK."""
+    return {"status": "ok", "message": "Server is running"}
 
-vector_store = PGVectorStore(
-    uri=settings.POSTGRES_URI,
-)
 
-# Initialize storage
-match settings.STORAGE_PROVIDER:
-    case "local":
-        storage = LocalStorage(storage_path=settings.STORAGE_PATH)
-    case "aws-s3":
-        if not settings.AWS_ACCESS_KEY or not settings.AWS_SECRET_ACCESS_KEY:
-            raise ValueError("AWS credentials are required for S3 storage")
-        storage = S3Storage(
-            aws_access_key=settings.AWS_ACCESS_KEY,
-            aws_secret_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION,
-            default_bucket=settings.S3_BUCKET,
-        )
-    case _:
-        raise ValueError(f"Unsupported storage provider: {settings.STORAGE_PROVIDER}")
+# ---------------------------------------------------------------------------
+# Core singletons (database, vector store, storage, parser, models …)
+# ---------------------------------------------------------------------------
 
-# Initialize parser
-parser = MorphikParser(
-    chunk_size=settings.CHUNK_SIZE,
-    chunk_overlap=settings.CHUNK_OVERLAP,
-    use_unstructured_api=settings.USE_UNSTRUCTURED_API,
-    unstructured_api_key=settings.UNSTRUCTURED_API_KEY,
-    assemblyai_api_key=settings.ASSEMBLYAI_API_KEY,
-    anthropic_api_key=settings.ANTHROPIC_API_KEY,
-    use_contextual_chunking=settings.USE_CONTEXTUAL_CHUNKING,
-)
 
-# Initialize embedding model
-# Create a LiteLLM model using the registered model config
-embedding_model = LiteLLMEmbeddingModel(
-    model_key=settings.EMBEDDING_MODEL,
-)
-logger.info(f"Initialized LiteLLM embedding model with model key: {settings.EMBEDDING_MODEL}")
-
-# Initialize completion model
-# Create a LiteLLM model using the registered model config
-completion_model = LiteLLMCompletionModel(
-    model_key=settings.COMPLETION_MODEL,
-)
-logger.info(f"Initialized LiteLLM completion model with model key: {settings.COMPLETION_MODEL}")
-
-# Initialize reranker
-reranker = None
-if settings.USE_RERANKING:
-    match settings.RERANKER_PROVIDER:
-        case "flag":
-            reranker = FlagReranker(
-                model_name=settings.RERANKER_MODEL,
-                device=settings.RERANKER_DEVICE,
-                use_fp16=settings.RERANKER_USE_FP16,
-                query_max_length=settings.RERANKER_QUERY_MAX_LENGTH,
-                passage_max_length=settings.RERANKER_PASSAGE_MAX_LENGTH,
-            )
-        case _:
-            raise ValueError(f"Unsupported reranker provider: {settings.RERANKER_PROVIDER}")
-
-# Initialize cache factory
-cache_factory = LlamaCacheFactory(Path(settings.STORAGE_PATH))
-
-# Initialize ColPali embedding model per mode (off/local/api)
-match settings.COLPALI_MODE:
-    case "off":
-        colpali_embedding_model = None
-        colpali_vector_store = None
-    case "local":
-        colpali_embedding_model = ColpaliEmbeddingModel()
-        colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
-    case "api":
-        colpali_embedding_model = ColpaliApiEmbeddingModel()
-        colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
-    case _:
-        raise ValueError(f"Unsupported COLPALI_MODE: {settings.COLPALI_MODE}")
-
-# Initialize document service with configured components
-document_service = DocumentService(
-    database=database,
-    vector_store=vector_store,
-    storage=storage,
-    parser=parser,
-    embedding_model=embedding_model,
-    completion_model=completion_model,
-    cache_factory=cache_factory,
-    reranker=reranker,
-    enable_colpali=settings.ENABLE_COLPALI,
-    colpali_embedding_model=colpali_embedding_model,
-    colpali_vector_store=colpali_vector_store,
-)
-# Store document_service on app.state immediately after it's created.
-# This must happen before _init_ee_app(app) is called.
+# Store on app.state for later access
 app.state.document_service = document_service
 logger.info("Document service initialized and stored on app.state")
 
-# Initialize the MorphikAgent once to load tool definitions and avoid repeated I/O
+# Single MorphikAgent instance (tool definitions cached)
 morphik_agent = MorphikAgent(document_service=document_service)
 
-# ---------------------------------------------------------------------------
-# Mount enterprise-only routes when the proprietary ``ee`` package
-# is present.
-# ---------------------------------------------------------------------------
-
+# Enterprise-only routes (optional)
 try:
-    from ee.routers import init_app as _init_ee_app  # type: ignore
+    from ee.routers import init_app as _init_ee_app  # type: ignore  # noqa: E402
 
     _init_ee_app(app)  # noqa: SLF001 – runtime extension
-except ModuleNotFoundError as e:
-    # Expected in OSS builds – silently ignore.
+except ModuleNotFoundError as exc:
     logger.debug("Enterprise package not found – running in community mode.")
-    logger.error(f"ModuleNotFoundError: {e}", exc_info=True)
-except ImportError as e:
-    logger.error(f"Failed to import init_app from ee.routers: {e}", exc_info=True)
-except Exception as e:
-    logger.error(f"An unexpected error occurred during EE app initialization: {e}", exc_info=True)
+    logger.error("ModuleNotFoundError: %s", exc, exc_info=True)
+except ImportError as exc:
+    logger.error("Failed to import init_app from ee.routers: %s", exc, exc_info=True)
+except Exception as exc:  # noqa: BLE001
+    logger.error("An unexpected error occurred during EE app initialization: %s", exc, exc_info=True)
 
 
 @app.post("/ingest/text", response_model=Document)
@@ -348,7 +179,7 @@ async def ingest_file(
     metadata: str = Form("{}"),
     rules: str = Form("[]"),
     auth: AuthContext = Depends(verify_token),
-    use_colpali: Optional[bool] = None,
+    use_colpali: Optional[bool] = Form(None),
     folder_name: Optional[str] = Form(None),
     end_user_id: Optional[str] = Form(None),
     redis: arq.ArqRedis = Depends(get_redis_pool),
@@ -1193,7 +1024,7 @@ async def update_document_file(
     metadata: str = Form("{}"),
     rules: str = Form("[]"),
     update_strategy: str = Form("add"),
-    use_colpali: Optional[bool] = None,
+    use_colpali: Optional[bool] = Form(None),
     auth: AuthContext = Depends(verify_token),
 ):
     """
@@ -2234,8 +2065,10 @@ async def delete_cloud_app(
     user_id = auth.user_id or auth.entity_id
     logger.info(f"Deleting app {app_name} for user {user_id}")
 
+    from sqlalchemy import delete as sa_delete
+    from sqlalchemy import select
+
     from core.models.apps import AppModel
-    from sqlalchemy import select, delete as sa_delete
     from core.services.user_service import UserService
 
     # 1) Resolve app_id from apps table ----------------------------------

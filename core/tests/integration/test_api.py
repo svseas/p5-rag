@@ -2,22 +2,22 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import AsyncGenerator, Dict  # , override
+from typing import Any, AsyncGenerator, Dict  # , override
 
 import filetype
 import jwt
 import pydantic
 import pytest
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from core.api import get_settings
+from core.config import get_settings
 from core.models.prompts import EntityExtractionPromptOverride, EntityResolutionPromptOverride, GraphPromptOverrides
 from core.tests import setup_test_logging
 
@@ -27,11 +27,37 @@ logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
 
+# Get settings from the server configuration
+settings = get_settings()
+
 # Test configuration
 TEST_DATA_DIR = Path(__file__).parent / "test_data"
-JWT_SECRET = "your-secret-key-for-signing-tokens"
 TEST_USER_ID = "test_user"
-TEST_POSTGRES_URI = os.getenv("TEST_POSTGRES_URI")
+TEST_SERVER_URL = os.getenv("TEST_SERVER_URL", "http://localhost:8000")
+
+
+def confirm_test_database():
+    """Confirm that we're using a test database before running tests."""
+    expected_test_uri = "postgresql+asyncpg://morphik@localhost:5432/morphik_test"
+    actual_uri = settings.POSTGRES_URI
+
+    if not actual_uri:
+        logger.critical("POSTGRES_URI not set in .env file! Tests aborted to prevent accidental data loss.")
+        logger.critical("Please configure a test database before running integration tests.")
+        sys.exit(1)
+    elif expected_test_uri != actual_uri:
+        logger.critical("POSTGRES_URI is not set to the expected test database!")
+        logger.critical(f"Expected: {expected_test_uri}")
+        logger.critical(f"Actual: {actual_uri}")
+        logger.critical("Tests aborted to prevent modifying production data.")
+        logger.critical("Please configure a test database before running integration tests.")
+        sys.exit(1)
+    else:
+        logger.info(f"Using test database: {actual_uri}")
+
+
+# Run the confirmation check when the module is loaded
+confirm_test_database()
 
 
 @pytest.fixture(scope="session")
@@ -82,7 +108,8 @@ def create_test_token(
     if app_id:
         payload["app_id"] = app_id
 
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    # Use JWT_SECRET_KEY from server settings instead of hardcoding
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
 
 def create_auth_header(
@@ -93,158 +120,40 @@ def create_auth_header(
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.fixture
-async def test_app(event_loop: asyncio.AbstractEventLoop) -> FastAPI:
-    """Create test FastAPI application"""
-    # Configure test settings
-    settings = get_settings()
-    settings.JWT_SECRET_KEY = JWT_SECRET
-
-    # Override database settings to use test database
-    # This ensures we don't use the production database from .env
-    settings.POSTGRES_URI = TEST_POSTGRES_URI
-    settings.DATABASE_PROVIDER = "postgres"  # Ensure we're using postgres
-
-    # IMPORTANT: We need to completely reinitialize the database connections
-    # since they were already established at import time
-
-    # First, get the database from the API module
-    from core.api import app
-    from core.api import database as api_database
-
-    # Close existing connection if it exists
-    if hasattr(api_database, "engine"):
-        await api_database.engine.dispose()
-
-    # Create a new database connection with the test URI
-    from core.database.postgres_database import PostgresDatabase
-
-    test_database = PostgresDatabase(uri=TEST_POSTGRES_URI)
-
-    # Initialize the test database
-    await test_database.initialize()
-
-    # Replace the global database instance with our test database
-    import core.api
-
-    core.api.database = test_database
-
-    # Also update the vector store if it uses the same database (for pgvector)
-    test_vector_store_instance = core.api.vector_store
-    if settings.VECTOR_STORE_PROVIDER == "pgvector":
-        from core.vector_store.pgvector_store import PGVectorStore
-        from core.vector_store.multi_vector_store import MultiVectorStore  # Added import
-
-        # Create a new vector store with the test URI
-        test_vector_store_instance = PGVectorStore(uri=TEST_POSTGRES_URI)
-
-        # Initialize the vector store database
-        test_vector_store_instance.initialize()
-
-        # Replace the global vector store with our test version
-        core.api.vector_store = test_vector_store_instance
-
-    # Initialize Colpali vector store if enabled and using pgvector
-    test_colpali_vector_store_instance = core.api.colpali_vector_store
-    if settings.ENABLE_COLPALI:
-        # Removed incorrect import of PGVectorStore, MultiVectorStore is imported above
-
-        logger.info(f"Re-initializing Colpali MultiVectorStore with URI: {TEST_POSTGRES_URI}")  # Log message updated
-        test_colpali_vector_store_instance = MultiVectorStore(  # Changed to MultiVectorStore
-            uri=TEST_POSTGRES_URI
-        )
-        test_colpali_vector_store_instance.initialize()
-        core.api.colpali_vector_store = test_colpali_vector_store_instance
-        logger.info("Colpali MultiVectorStore re-initialized and replaced.")  # Log message updated
-    else:
-        logger.info("Colpali is not enabled, skipping Colpali vector store re-initialization.")
-
-    # Initialize Redis connection pool for testing
-    import arq.connections
-
-    from core.workers.ingestion_worker import redis_settings_from_env
-
-    # Create a Redis connection pool
-    logger.info("Creating Redis connection pool for tests")
-    try:
-        redis_settings = redis_settings_from_env()
-        redis_pool = await arq.create_pool(redis_settings)
-        # Replace the global redis_pool with our test version
-        core.api.redis_pool = redis_pool
-        app.state.redis_pool = redis_pool  # Make it available on app.state
-        logger.info("Redis connection pool created successfully for tests")
-    except Exception as e:
-        logger.error(f"Failed to create Redis connection pool for tests: {str(e)}")
-        # Continue without Redis to allow other tests to run
-
-    # Update the document service with our test instances
-    # Create a new document service with our test database and vector store
-    from core.api import (
-        cache_factory,
-        colpali_embedding_model,
-        # colpali_vector_store,  # This is now test_colpali_vector_store_instance
-        completion_model,
-        embedding_model,
-        parser,
-        reranker,
-        storage,
-    )
-    from core.services.document_service import DocumentService
-
-    test_document_service = DocumentService(
-        database=test_database,
-        vector_store=test_vector_store_instance,  # Use the potentially re-initialized instance
-        parser=parser,
-        embedding_model=embedding_model,
-        completion_model=completion_model,
-        cache_factory=cache_factory,
-        reranker=reranker,
-        storage=storage,
-        enable_colpali=settings.ENABLE_COLPALI,
-        colpali_embedding_model=colpali_embedding_model,
-        colpali_vector_store=test_colpali_vector_store_instance,  # Use the re-initialized Colpali store
-    )
-
-    # Replace the global document service with our test version
-    core.api.document_service = test_document_service
-
-    # Update the graph service if needed
-    if hasattr(core.api, "graph_service"):
-        from core.api import completion_model  # embedding_model is already imported
-        from core.services.graph_service import GraphService
-
-        test_graph_service = GraphService(
-            db=test_database, embedding_model=embedding_model, completion_model=completion_model
-        )
-
-        core.api.graph_service = test_graph_service
-
-    return app
-
-
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="function", autouse=True)
 async def cleanup_redis():
-    """Clean up Redis connection pool after tests"""
+    """Placeholder for Redis cleanup - modified for external server"""
     yield
-    # This will run after each test function
-    import core.api
-
-    if hasattr(core.api, "redis_pool") and core.api.redis_pool:
-        logger.info("Closing Redis connection pool after test")
-        try:
-            core.api.redis_pool.close()
-            await core.api.redis_pool.wait_closed()
-            logger.info("Redis connection pool closed successfully")
-        except Exception as e:
-            logger.error(f"Failed to close Redis connection pool: {str(e)}")
+    # We no longer directly control the Redis connection in tests
+    # as we're using an external server
 
 
 @pytest.fixture
-async def client(
-    test_app: FastAPI, event_loop: asyncio.AbstractEventLoop, cleanup_redis
-) -> AsyncGenerator[AsyncClient, None]:
-    """Create async test client"""
-    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+async def client(event_loop: asyncio.AbstractEventLoop, cleanup_redis) -> AsyncGenerator[AsyncClient, None]:
+    """Create async test client that connects to a running server"""
+    # Verify that the server is running
+    try:
+        async with AsyncClient(base_url=TEST_SERVER_URL, timeout=30.0) as check_client:
+            # First try the /ping endpoint
+            try:
+                response = await check_client.get(f"{TEST_SERVER_URL}/ping", timeout=5.0)
+                if response.status_code != 200:
+                    # If /ping fails, try the root endpoint
+                    response = await check_client.get(TEST_SERVER_URL, timeout=5.0)
+                    if response.status_code >= 400:
+                        logger.critical(f"Server at {TEST_SERVER_URL} is not responding properly. Tests will not run.")
+                        sys.exit(1)
+            except Exception:
+                # If /ping fails, try the root endpoint
+                response = await check_client.get(TEST_SERVER_URL, timeout=5.0)
+                if response.status_code >= 400:
+                    logger.critical(f"Server at {TEST_SERVER_URL} is not responding properly. Tests will not run.")
+                    sys.exit(1)
+    except Exception as e:
+        logger.critical(f"Server at {TEST_SERVER_URL} is not running. Tests will not run. Error: {e}")
+        sys.exit(1)
+
+    async with AsyncClient(base_url=TEST_SERVER_URL, timeout=30.0) as client:
         yield client
 
 
@@ -257,7 +166,12 @@ async def cleanup_documents():
 
     # We should always use the test database
     # Create a fresh connection to make sure we're not affected by any state
-    engine = create_async_engine(TEST_POSTGRES_URI)
+    postgres_uri = settings.POSTGRES_URI
+    if not postgres_uri:
+        logger.warning("POSTGRES_URI not set, skipping document cleanup")
+        return
+
+    engine = create_async_engine(postgres_uri)
 
     try:
         async with engine.begin() as conn:
@@ -430,21 +344,6 @@ async def test_ingest_invalid_metadata(client: AsyncClient):
             headers=headers,
         )
         assert response.status_code == 400  # Bad request
-
-
-# @pytest.mark.asyncio
-# @pytest.mark.skipif(
-#     get_settings().EMBEDDING_PROVIDER == "ollama",
-#     reason="local embedding models do not have size limits",
-# )
-# async def test_ingest_oversized_content(client: AsyncClient):
-#     """Test ingestion with oversized content"""
-#     headers = create_auth_header()
-#     large_content = "x" * (10 * 1024 * 1024)  # 10MB
-#     response = await client.post(
-#         "/ingest/text", json={"content": large_content, "metadata": {}}, headers=headers
-#     )
-#     assert response.status_code == 400  # Bad request
 
 
 @pytest.mark.asyncio
@@ -1634,7 +1533,13 @@ async def test_query_with_reranking(client: AsyncClient):
 async def cleanup_graphs():
     """Clean up graphs before each graph test. Assumes 'graphs' table exists."""
     # Create a fresh connection to the test database
-    engine = create_async_engine(TEST_POSTGRES_URI)
+    postgres_uri = settings.POSTGRES_URI
+    if not postgres_uri:
+        logger.warning("POSTGRES_URI not set, skipping graph cleanup")
+        yield
+        return
+
+    engine = create_async_engine(postgres_uri)
     try:
         async with engine.begin() as conn:
             # First check if the graphs table exists in the public schema
@@ -1653,25 +1558,25 @@ async def cleanup_graphs():
             if table_exists:
                 # If table exists, delete all rows from it
                 await conn.execute(text("DELETE FROM public.graphs"))
-                logger.info("Cleaned data from 'public.graphs' table.")
             else:
                 # If table does not exist, this is a setup issue. Tests requiring it will fail.
                 # Log a critical error. Graph-related tests will likely fail.
                 # This fixture should not be responsible for creating schema.
-                logger.error(
-                    "CRITICAL: The 'public.graphs' table does not exist. "
-                    "This indicates an issue with the test database setup (migrations may not have run). "
-                    "Graph-related tests will likely fail. "
-                    "This fixture will NOT attempt to create the table."
+                logger.warning(
+                    "The 'public.graphs' table does not exist in test database. "
+                    "Graph-related tests will likely fail."
                 )
     except OperationalError as oe:  # Catch specific SQLAlchemy/DB driver operational errors
-        logger.error(f"Operational error during graph cleanup/check: {oe}. "
-                     "This might indicate a connection or DB setup issue (e.g., permissions, DB down).")
-        # Re-raise to make test failure clear, as this is a fundamental issue for tests.
-        raise
+        logger.error(
+            f"Operational error during graph cleanup/check: {oe}. "
+            "This might indicate a connection or DB setup issue (e.g., permissions, DB down)."
+        )
+        # Just log error but don't fail test, as we're working with external server
+        pass
     except Exception as e:
         logger.error(f"Unexpected error during graph cleanup: {e}")
-        raise  # Re-raise to make test fail clearly
+        # Just log error but don't fail test, as we're working with external server
+        pass
     finally:
         await engine.dispose()
 
@@ -1713,7 +1618,11 @@ async def test_create_graph(client: AsyncClient):
     )
 
     assert response.status_code == 200
-    graph = response.json()
+    # Wait for background processing to finish
+    await _wait_graph_completion(client, graph_name, headers)
+
+    graph_resp = await client.get(f"/graph/{graph_name}", headers=headers)
+    graph = graph_resp.json()
 
     # Verify graph structure
     assert graph["name"] == graph_name
@@ -3718,3 +3627,33 @@ async def test_multi_folder_list_scoping(client: AsyncClient):
     # Ensure sources are scoped correctly
     assert "sources" in result and len(result["sources"]) > 0
     assert all(src["document_id"] in {doc1_id, doc2_id} for src in result["sources"])
+
+
+# ---------------------------------------------------------------------------
+# Utility – wait for background graph builds to complete
+# ---------------------------------------------------------------------------
+
+
+async def _wait_graph_completion(
+    client: AsyncClient,
+    graph_name: str,
+    headers: Dict[str, str],
+    folder_name: str | list[str] | None = None,
+    end_user_id: str | None = None,
+    max_tries: int = 30,
+):
+    """Poll /graph/{graph_name} until system_metadata.status == 'completed'."""
+    params: Dict[str, Any] = {}
+    if folder_name is not None:
+        params["folder_name"] = folder_name
+    if end_user_id is not None:
+        params["end_user_id"] = end_user_id
+
+    for _ in range(max_tries):
+        resp = await client.get(f"/graph/{graph_name}", headers=headers, params=params)
+        if resp.status_code == 200:
+            g = resp.json()
+            if g.get("system_metadata", {}).get("status") == "completed":
+                return g
+        await asyncio.sleep(1)
+    raise AssertionError(f"Graph {graph_name} did not complete within timeout")

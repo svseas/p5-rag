@@ -33,6 +33,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.54b0",
     "pdf2image>=1.17.0",
     "pgvector>=0.4.1",
+    "pre-commit>=4.2.0",
     "psycopg>=3.2.9",
     "psycopg-binary>=3.2.9",
     "psycopg2-binary>=2.9.9",
@@ -53,3 +54,14 @@ dependencies = [
     "unstructured[pdf]>=0.17.2",
     "uvicorn>=0.34.2",
 ]
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.ruff]
+line-length = 120
+ignore = ["I"]

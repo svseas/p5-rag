@@ -163,14 +163,15 @@ class AsyncFolder:
             files = {"file": (filename, file_obj)}
 
             # Create form data
-            form_data = self._client._logic._prepare_ingest_file_form_data(metadata, rules, self._name, None)
+            form_data = self._client._logic._prepare_ingest_file_form_data(
+                metadata, rules, self._name, None, use_colpali
+            )
 
             response = await self._client._request(
                 "POST",
                 "ingest/file",
                 data=form_data,
                 files=files,
-                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._client._logic._parse_document_response(response)
             doc._client = self._client
@@ -215,7 +216,6 @@ class AsyncFolder:
                 "ingest/files",
                 data=data,
                 files=file_objects,
-                params={"use_colpali": str(use_colpali).lower()},
             )
 
             if response.get("errors"):
@@ -474,9 +474,7 @@ class AsyncFolder:
             List[FinalChunkResult]: List of chunk results
         """
         merged = self._merge_folders(additional_folders)
-        request = self._client._logic._prepare_batch_get_chunks_request(
-            sources, merged, None, use_colpali
-        )
+        request = self._client._logic._prepare_batch_get_chunks_request(sources, merged, None, use_colpali)
         response = await self._client._request("POST", "batch/chunks", data=request)
         return self._client._logic._parse_chunk_result_list_response(response)
 
@@ -670,14 +668,14 @@ class AsyncUserScope:
             # Prepare multipart form data
             files = {"file": (filename, file_obj)}
 
-            # Add metadata and rules
+            # Add metadata, rules and scoping information
             data = {
                 "metadata": json.dumps(metadata or {}),
                 "rules": json.dumps([self._client._convert_rule(r) for r in (rules or [])]),
-                "end_user_id": self._end_user_id,  # Add end user ID here
+                "end_user_id": self._end_user_id,
+                "use_colpali": str(use_colpali).lower(),
             }
 
-            # Add folder name if scoped to a folder
             if self._folder_name:
                 data["folder_name"] = self._folder_name
 
@@ -738,9 +736,9 @@ class AsyncUserScope:
             data = {
                 "metadata": json.dumps(metadata or {}),
                 "rules": json.dumps(converted_rules),
-                "use_colpali": str(use_colpali).lower() if use_colpali is not None else None,
                 "parallel": str(parallel).lower(),
-                "end_user_id": self._end_user_id,  # Add end user ID here
+                "end_user_id": self._end_user_id,
+                "use_colpali": str(use_colpali).lower(),
             }
 
             # Add folder name if scoped to a folder
@@ -752,7 +750,6 @@ class AsyncUserScope:
                 "ingest/files",
                 data=data,
                 files=file_objects,
-                params={"use_colpali": str(use_colpali).lower()},
             )
 
             if response.get("errors"):
@@ -1345,14 +1342,13 @@ class AsyncMorphik:
             files = {"file": (filename, file_obj)}
 
             # Create form data
-            form_data = self._logic._prepare_ingest_file_form_data(metadata, rules, None, None)
+            form_data = self._logic._prepare_ingest_file_form_data(metadata, rules, None, None, use_colpali)
 
             response = await self._request(
                 "POST",
                 "ingest/file",
                 data=form_data,
                 files=files,
-                params={"use_colpali": str(use_colpali).lower()},
             )
             doc = self._logic._parse_document_response(response)
             doc._client = self
@@ -1398,7 +1394,6 @@ class AsyncMorphik:
                 "ingest/files",
                 data=data,
                 files=file_objects,
-                params={"use_colpali": str(use_colpali).lower()},
             )
 
             if response.get("errors"):
@@ -2225,9 +2220,7 @@ class AsyncMorphik:
                 print(f"Chunk from {chunk.document_id}, number {chunk.chunk_number}: {chunk.content[:50]}...")
             ```
         """
-        request = self._logic._prepare_batch_get_chunks_request(
-            sources, folder_name, None, use_colpali
-        )
+        request = self._logic._prepare_batch_get_chunks_request(sources, folder_name, None, use_colpali)
         response = await self._request("POST", "batch/chunks", data=request)
         return self._logic._parse_chunk_result_list_response(response)
 

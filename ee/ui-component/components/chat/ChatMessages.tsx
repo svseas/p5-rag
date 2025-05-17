@@ -88,7 +88,7 @@ export function PreviewMessage({ message }: Pick<MessageProps, "message">) {
                     components={
                       {
                         code(props) {
-                          const { children, className, node, ...rest } = props;
+                          const { children, className, ...rest } = props;
                           const inline = !className?.includes("language-");
                           const match = /language-(\w+)/.exec(className || "");
 
