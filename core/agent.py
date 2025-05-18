@@ -4,6 +4,7 @@ import os
 
 from dotenv import load_dotenv
 from litellm import acompletion
+from litellm.exceptions import ContextWindowExceededError
 
 from core.config import get_settings
 from core.models.auth import AuthContext
@@ -199,8 +200,27 @@ when citing different sources. Use markdown formatting for text content to impro
 
         while True:
             logger.info(f"Sending completion request with {len(messages)} messages")
-            resp = await acompletion(**model_params)
-            logger.info(f"Received response: {_truncate_for_log(resp)}")
+            try:
+                resp = await acompletion(**model_params)
+            except ContextWindowExceededError as e:
+                logger.info("Context window exceeded, truncating messages")
+                # Save messages to JSON for debugging or analysis
+                debug_dir = os.path.join(os.getcwd(), "debug_logs")
+                os.makedirs(debug_dir, exist_ok=True)
+
+                # Create a unique filename with timestamp
+                import datetime
+
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_file = os.path.join(debug_dir, f"agent_messages_{timestamp}.json")
+
+                # Save the current messages to the file
+                with open(log_file, "w") as f:
+                    json.dump(messages, f, indent=2)
+
+                logger.info(f"Saved messages to {log_file}")
+                raise e
+            logger.info(f"Received response: {resp}")
 
             msg = resp.choices[0].message
             # If no tool call, return final content

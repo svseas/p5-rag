@@ -9,6 +9,7 @@ import FolderList from "./FolderList";
 import { UploadDialog, useUploadDialog } from "./UploadDialog";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import DeleteConfirmationModal from "./DeleteConfirmationModal";
 
 import { Document, Folder } from "@/components/types";
 
@@ -128,6 +129,10 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
   const [foldersLoading, setFoldersLoading] = useState(false);
   // Use ref to track if this is the initial mount
   const isInitialMount = useRef(true);
+  // State for delete confirmation modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null); // For single delete: stores ID
+  const [itemsToDeleteCount, setItemsToDeleteCount] = useState<number>(0); // For multiple delete: stores count
 
   // Upload dialog state from custom hook
   const uploadDialogState = useUploadDialog();
@@ -485,27 +490,36 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
 
   // Handle single document deletion
   const handleDeleteDocument = async (documentId: string) => {
+    setItemToDelete(documentId);
+    setItemsToDeleteCount(0); // Ensure this is 0 for single delete scenario
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteSingleDocument = async () => {
+    if (!itemToDelete) return;
+
     try {
       // Find document name before deleting (for callback)
-      const docToDelete = documents.find(doc => doc.external_id === documentId);
-      const docName = docToDelete?.filename || documentId; // Use filename, fallback to ID
-      console.log(`handleDeleteDocument: Calling onDocumentDelete with '${docName}'`);
+      const docToDelete = documents.find(doc => doc.external_id === itemToDelete);
+      const docName = docToDelete?.filename || itemToDelete; // Use filename, fallback to ID
+      console.log(`confirmDeleteSingleDocument: Calling onDocumentDelete with '${docName}'`);
       onDocumentDelete?.(docName); // Invoke callback
 
       setLoading(true);
+      setShowDeleteModal(false); // Close modal before starting deletion
 
-      console.log("DocumentsSection: Deleting document:", documentId);
+      console.log("DocumentsSection: Deleting document:", itemToDelete);
 
-      await deleteDocumentApi(documentId);
+      await deleteDocumentApi(itemToDelete);
 
       // Clear selected document if it was the one deleted
-      if (selectedDocument?.external_id === documentId) {
+      if (selectedDocument?.external_id === itemToDelete) {
         setSelectedDocument(null);
       }
 
       // Refresh folders first, then documents
       await fetchFolders();
-      await fetchDocuments();
+      await fetchDocuments(); // This will be triggered by folder fetch in useEffect
 
       // Show success message
       showAlert("Document deleted successfully", {
@@ -519,16 +533,23 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
         title: "Delete Failed",
         duration: 5000,
       });
-
       // Also remove the progress alert if there was an error
-      removeAlert("delete-multiple-progress");
+      removeAlert("delete-multiple-progress"); // Though not used for single, good to have
     } finally {
       setLoading(false);
+      setItemToDelete(null);
     }
   };
 
   // Handle multiple document deletion
   const handleDeleteMultipleDocuments = async () => {
+    if (selectedDocuments.length === 0) return;
+    setItemsToDeleteCount(selectedDocuments.length);
+    setItemToDelete(null); // Ensure this is null for multiple delete scenario
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteMultipleDocuments = async () => {
     if (selectedDocuments.length === 0) return;
 
     try {
@@ -536,11 +557,12 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
       selectedDocuments.forEach(docId => {
         const docToDelete = documents.find(doc => doc.external_id === docId);
         const docName = docToDelete?.filename || docId; // Use filename, fallback to ID
-        console.log(`handleDeleteMultipleDocuments: Calling onDocumentDelete with '${docName}'`);
+        console.log(`confirmDeleteMultipleDocuments: Calling onDocumentDelete with '${docName}'`);
         onDocumentDelete?.(docName);
       });
 
       setLoading(true);
+      setShowDeleteModal(false); // Close modal before starting deletion
 
       // Show initial alert for deletion progress
       const alertId = "delete-multiple-progress";
@@ -568,7 +590,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
 
       // Refresh folders first, then documents
       await fetchFolders();
-      await fetchDocuments();
+      await fetchDocuments(); // This will be triggered by folder fetch in useEffect
 
       // Remove progress alert
       removeAlert(alertId);
@@ -597,6 +619,8 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
       removeAlert("delete-multiple-progress");
     } finally {
       setLoading(false);
+      setSelectedDocuments([]); // Clear selection after attempting deletion
+      setItemsToDeleteCount(0);
     }
   };
 
@@ -1133,6 +1157,22 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
           onFolderCreate={onFolderCreate}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setItemToDelete(null);
+          setItemsToDeleteCount(0);
+        }}
+        onConfirm={itemToDelete ? confirmDeleteSingleDocument : confirmDeleteMultipleDocuments}
+        itemName={
+          itemToDelete ? documents.find(doc => doc.external_id === itemToDelete)?.filename || itemToDelete : undefined
+        }
+        itemCount={itemsToDeleteCount > 0 ? itemsToDeleteCount : undefined}
+        loading={loading}
+      />
 
       {/* Folder Grid View (selectedFolder is null) */}
       {selectedFolder === null ? (

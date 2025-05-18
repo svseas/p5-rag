@@ -84,7 +84,7 @@ async def retrieve_chunks(
             chunk_content = [{"type": "text", "text": f"Source ID: {source_id}"}]
 
             # Check if this is an image chunk
-            if chunk.metadata.get("is_image", False):
+            if chunk.metadata.get("is_image", False) or chunk.content.startswith("data:"):
                 # Add image to content
                 if chunk.content.startswith("data:"):
                     # Already in data URL format
@@ -99,7 +99,7 @@ async def retrieve_chunks(
                 chunk_content.append(
                     {
                         "type": "text",
-                        "text": f"This is an image from {chunk.filename or 'Unnamed'} (Score: {chunk.score:.2f}). "
+                        "text": f"This (shared above) is an image from {chunk.filename or 'Unnamed'} (Score: {chunk.score:.2f}). "
                         + f"When referencing this image, cite source: {source_id}",
                     }
                 )
