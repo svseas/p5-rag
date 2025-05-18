@@ -224,9 +224,15 @@ async def process_ingestion_job(
         logger.info(f"File download took {download_time:.2f}s for {len(file_content)/1024/1024:.2f}MB")
 
         # 4. Parse file to text
+        # Use the filename derived from the storage key so the parser
+        # receives the correct extension (.txt, .pdf, etc.).  Passing the UI
+        # provided original_filename (often .pdf) can mislead the parser when
+        # the stored object is a pre-extracted text file (e.g. .pdf.txt).
+        parse_filename = os.path.basename(file_key) if file_key else original_filename
+
         parse_start = time.time()
-        additional_metadata, text = await document_service.parser.parse_file_to_text(file_content, original_filename)
-        logger.debug(f"Parsed file into text of length {len(text)}")
+        additional_metadata, text = await document_service.parser.parse_file_to_text(file_content, parse_filename)
+        logger.debug(f"Parsed file into text of length {len(text)} (filename used: {parse_filename})")
         parse_time = time.time() - parse_start
         phase_times["parse_file"] = parse_time
 
@@ -571,23 +577,34 @@ async def process_ingestion_job(
     except Exception as e:
         logger.error(f"Error processing ingestion job for file {original_filename}: {str(e)}")
 
-        # Update document status to failed if the document exists
+        # ------------------------------------------------------------------
+        # Ensure we update the *per-app* database where the document lives.
+        # Falling back to the control-plane DB (ctx["database"]) can silently
+        # fail because the row doesn't exist there.
+        # ------------------------------------------------------------------
+
         try:
-            # Create AuthContext for database operations
-            auth_context = AuthContext(
-                entity_type=EntityType(auth_dict.get("entity_type", "unknown")),
-                entity_id=auth_dict.get("entity_id", ""),
-                app_id=auth_dict.get("app_id"),
-                permissions=set(auth_dict.get("permissions", ["read"])),
-                user_id=auth_dict.get("user_id", auth_dict.get("entity_id", "")),
-            )
+            database: Optional[PostgresDatabase] = None
 
-            # Get database from context
-            database = ctx.get("database")
+            # Prefer the tenant-specific database
+            if auth.app_id is not None:
+                try:
+                    database = await get_database_for_app(auth.app_id)
+                    await database.initialize()
+                except Exception as db_err:
+                    logger.warning(
+                        "Failed to obtain per-app database in error handler: %s. Falling back to default.",
+                        db_err,
+                    )
 
+            # Fallback to the default database kept in the worker context
+            if database is None:
+                database = ctx.get("database")
+
+            # Proceed only if we have a database object
             if database:
                 # Try to get the document
-                doc = await database.get_document(document_id, auth_context)
+                doc = await database.get_document(document_id, auth)
 
                 if doc:
                     # Update the document status to failed
@@ -601,11 +618,11 @@ async def process_ingestion_job(
                                 "updated_at": datetime.now(UTC),
                             }
                         },
-                        auth=auth_context,
+                        auth=auth,
                     )
                     logger.info(f"Updated document {document_id} status to failed")
         except Exception as inner_e:
-            logger.error(f"Failed to update document status: {str(inner_e)}")
+            logger.error(f"Failed to update document status: {inner_e}")
 
         # Note: We don't record usage if the job failed.
 

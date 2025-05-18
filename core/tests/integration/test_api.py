@@ -3657,3 +3657,75 @@ async def _wait_graph_completion(
                 return g
         await asyncio.sleep(1)
     raise AssertionError(f"Graph {graph_name} did not complete within timeout")
+
+
+# ---------------------------------------------------------------------------
+# New tests – regression for PDF-named text & failed status propagation
+# ---------------------------------------------------------------------------
+
+
+async def _wait_doc_status(
+    client: AsyncClient, doc_id: str, headers: Dict[str, str], *, target: str, timeout: int = 30
+):
+    """Poll /documents/{id}/status until status matches *target* or timeout."""
+    import asyncio
+    import time
+
+    start = time.time()
+    while time.time() - start < timeout:
+        resp = await client.get(f"/documents/{doc_id}/status", headers=headers)
+        if resp.status_code == 200:
+            status = resp.json().get("status")
+            if status == target:
+                return resp.json()
+        await asyncio.sleep(1)
+    raise AssertionError(f"Document {doc_id} did not reach status={target} within {timeout}s")
+
+
+@pytest.mark.asyncio
+async def test_ingest_text_named_pdf_success(client: AsyncClient):
+    """Plain-text bytes with a .pdf name should still ingest successfully."""
+
+    headers = create_auth_header()
+
+    fake_pdf_bytes = b"This is actually plain text, not a PDF."
+
+    response = await client.post(
+        "/ingest/file",
+        files={"file": ("fake.pdf", fake_pdf_bytes, "text/plain")},
+        data={"metadata": json.dumps({"regression": "pdf_named_text"})},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    doc = response.json()
+
+    # Wait until worker completes (should be 'completed')
+    status_info = await _wait_doc_status(client, doc["external_id"], headers, target="completed")
+
+    assert status_info["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_ingest_empty_file_sets_failed_status(client: AsyncClient):
+    """Uploading an empty file should fail and status should become 'failed'."""
+
+    headers = create_auth_header()
+
+    empty_bytes = b""  # zero-length
+
+    response = await client.post(
+        "/ingest/file",
+        files={"file": ("empty.txt", empty_bytes, "text/plain")},
+        data={"metadata": json.dumps({"regression": "empty_file"})},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    doc = response.json()
+
+    # Wait for the worker to mark as failed
+    status_info = await _wait_doc_status(client, doc["external_id"], headers, target="failed")
+
+    assert status_info["status"] == "failed"
+    assert "error" in status_info and "No content chunks" in status_info["error"]
