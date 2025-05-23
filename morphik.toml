@@ -15,6 +15,7 @@ dev_permissions = ["read", "write", "admin"]  # Default dev permissions
 # OpenAI models
 openai_gpt4 = { model_name = "gpt-4" }
 openai_gpt4-1 = { model_name = "gpt-4.1" }
+openai_gpt4-1-mini = { model_name = "gpt-4.1-mini" }
 openai_gpt4o = { model_name = "gpt-4o" }
 openai_gpt4o_mini = { model_name = "gpt-4o-mini" }
 
@@ -52,7 +53,7 @@ ollama_embedding_docker_docker = { model_name = "ollama/nomic-embed-text", api_b
 model = "claude_sonnet" # Model for the agent logic
 
 [completion]
-model = "openai_gpt4o_mini" #"openai_gpt4o"  # Reference to a key in registered_models
+model = "openai_gpt4-1-mini" #"openai_gpt4o"  # Reference to a key in registered_models
 default_max_tokens = "1000"
 default_temperature = 0.5
 
@@ -80,7 +81,7 @@ use_contextual_chunking = false
 contextual_chunking_model = "openai_gpt4o"  # Reference to a key in registered_models
 
 [document_analysis]
-model = "openai_gpt4o_mini"  # Reference to a key in registered_models
+model = "openai_gpt4-1-mini"  # Reference to a key in registered_models
 
 [parser.vision]
 model = "openai_gpt4o"  # Reference to a key in registered_models
@@ -109,7 +110,7 @@ storage_path = "morphik-storage"
 provider = "pgvector"
 
 [rules]
-model = "openai_gpt4o_mini"
+model = "openai_gpt4-1-mini"
 batch_size = 4096
 
 [morphik]
