@@ -27,7 +27,7 @@ interface UseMorphikChatReturn {
   handleSubmit: (e?: React.FormEvent<HTMLFormElement>) => void;
   attachments?: Attachment[];
   setAttachments?: React.Dispatch<React.SetStateAction<Attachment[]>>;
-  updateQueryOption?: (key: keyof QueryOptions, value: string | number | boolean | undefined) => void;
+  updateQueryOption?: (key: keyof QueryOptions, value: QueryOptions[keyof QueryOptions]) => void;
   status?: string;
 }
 
@@ -83,19 +83,19 @@ export function useMorphikChat({
 
   const [queryOptions, setQueryOptions] = useState<QueryOptions>({
     filters: initialQueryOptions.filters ?? "{}",
-    k: initialQueryOptions.k ?? 10,
+    k: initialQueryOptions.k ?? 5,
     min_score: initialQueryOptions.min_score ?? 0.7,
     use_reranking: initialQueryOptions.use_reranking ?? false,
     use_colpali: initialQueryOptions.use_colpali ?? true,
     max_tokens: initialQueryOptions.max_tokens ?? 1024,
-    temperature: initialQueryOptions.temperature ?? 0.7,
+    temperature: initialQueryOptions.temperature ?? 0.5,
     graph_name: initialQueryOptions.graph_name,
     folder_name: initialQueryOptions.folder_name,
   });
 
   const status = isLoading ? "loading" : "idle";
 
-  const updateQueryOption = useCallback((key: keyof QueryOptions, value: string | number | boolean | undefined) => {
+  const updateQueryOption = useCallback((key: keyof QueryOptions, value: QueryOptions[keyof QueryOptions]) => {
     setQueryOptions(prev => ({ ...prev, [key]: value }));
   }, []);
 
