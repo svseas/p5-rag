@@ -842,11 +842,17 @@ class PostgresDatabase(BaseDatabase):
         else:
             filters = base_clauses.copy()
 
-        # In cloud mode further restrict by user_id when available (used for multi-tenant
-        # end-user isolation).
-        if auth.user_id:
+        # In cloud mode, allow end-users to access their resources via the `user_id` ACL –
+        # *except* when we are already scoping a developer token to a specific ``app_id``.
+        #
+        # Including the user_id clause for developer-scoped requests would broaden the
+        # predicate from an AND (by app_id) to an OR, inadvertently exposing documents or
+        # graphs that belong to *other* applications of the same developer.  Therefore we
+        # only append the user_id shortcut when **either** (a) we are *not* dealing with a
+        # developer token, **or** (b) the token has no explicit app_id scope.
+        if auth.user_id and not (auth.entity_type == EntityType.DEVELOPER and auth.app_id is not None):
             if get_settings().MODE == "cloud":
-                # access_control.user_id is a list in the DocumentModel, so `?` is correct and uses the GIN index.
+                # access_control.user_id is a list in the JSONB column; `?` uses the GIN index.
                 filters.append(f"access_control->'user_id' ? '{auth.user_id}'")
 
         return " OR ".join(filters)

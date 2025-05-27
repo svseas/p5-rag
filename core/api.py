@@ -1006,6 +1006,10 @@ async def create_graph(
         if request.end_user_id:
             system_filters["end_user_id"] = request.end_user_id
 
+        # Developer tokens: always scope by app_id to prevent cross-app leakage
+        if auth.app_id:
+            system_filters["app_id"] = auth.app_id
+
         # --------------------
         # Create stub graph
         # --------------------
@@ -1345,6 +1349,10 @@ async def get_graph(
         if end_user_id:
             system_filters["end_user_id"] = end_user_id
 
+        # Developer tokens: always scope by app_id to prevent cross-app leakage
+        if auth.app_id:
+            system_filters["app_id"] = auth.app_id
+
         graph = await document_service.db.get_graph(name, auth, system_filters)
         if not graph:
             raise HTTPException(status_code=404, detail=f"Graph '{name}' not found")
@@ -1383,6 +1391,10 @@ async def list_graphs(
             system_filters["folder_name"] = normalized_folder_name
         if end_user_id:
             system_filters["end_user_id"] = end_user_id
+
+        # Developer tokens: always scope by app_id to prevent cross-app leakage
+        if auth.app_id:
+            system_filters["app_id"] = auth.app_id
 
         return await document_service.db.list_graphs(auth, system_filters)
     except PermissionError as e:
@@ -1466,6 +1478,10 @@ async def update_graph(
             system_filters["folder_name"] = request.folder_name
         if request.end_user_id:
             system_filters["end_user_id"] = request.end_user_id
+
+        # Developer tokens: always scope by app_id to prevent cross-app leakage
+        if auth.app_id:
+            system_filters["app_id"] = auth.app_id
 
         return await document_service.update_graph(
             name=name,
