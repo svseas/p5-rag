@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time  # Add time import for profiling
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
@@ -42,6 +43,56 @@ from core.services_init import document_service
 
 # Initialize FastAPI app
 logger = logging.getLogger(__name__)
+
+
+# Performance tracking class
+class PerformanceTracker:
+    def __init__(self, operation_name: str):
+        self.operation_name = operation_name
+        self.start_time = time.time()
+        self.phases = {}
+        self.current_phase = None
+        self.phase_start = None
+
+    def start_phase(self, phase_name: str):
+        # End current phase if one is running
+        if self.current_phase and self.phase_start:
+            self.phases[self.current_phase] = time.time() - self.phase_start
+
+        # Start new phase
+        self.current_phase = phase_name
+        self.phase_start = time.time()
+
+    def end_phase(self):
+        if self.current_phase and self.phase_start:
+            self.phases[self.current_phase] = time.time() - self.phase_start
+            self.current_phase = None
+            self.phase_start = None
+
+    def add_suboperation(self, name: str, duration: float):
+        """Add a sub-operation timing"""
+        self.phases[name] = duration
+
+    def log_summary(self, additional_info: str = ""):
+        total_time = time.time() - self.start_time
+
+        # End current phase if still running
+        if self.current_phase and self.phase_start:
+            self.phases[self.current_phase] = time.time() - self.phase_start
+
+        logger.info(f"=== {self.operation_name} Performance Summary ===")
+        logger.info(f"Total time: {total_time:.2f}s")
+
+        # Sort phases by duration (longest first)
+        for phase, duration in sorted(self.phases.items(), key=lambda x: x[1], reverse=True):
+            percentage = (duration / total_time) * 100 if total_time > 0 else 0
+            logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
+
+        if additional_info:
+            logger.info(additional_info)
+        logger.info("=" * (len(self.operation_name) + 31))
+
+
 # ---------------------------------------------------------------------------
 # Application instance & core initialisation (moved lifespan, rest unchanged)
 # ---------------------------------------------------------------------------
@@ -158,8 +209,13 @@ async def retrieve_chunks(request: RetrieveRequest, auth: AuthContext = Depends(
     Returns:
         List[ChunkResult]: List of relevant chunks
     """
+    # Initialize performance tracker
+    perf = PerformanceTracker(f"Retrieve Chunks: '{request.query[:50]}...'")
+
     try:
-        return await document_service.retrieve_chunks(
+        # Main retrieval operation
+        perf.start_phase("document_service_retrieve_chunks")
+        results = await document_service.retrieve_chunks(
             request.query,
             auth,
             request.filters,
@@ -169,7 +225,13 @@ async def retrieve_chunks(request: RetrieveRequest, auth: AuthContext = Depends(
             request.use_colpali,
             request.folder_name,
             request.end_user_id,
+            perf,  # Pass performance tracker
         )
+
+        # Log consolidated performance summary
+        perf.log_summary(f"Retrieved {len(results)} chunks")
+
+        return results
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -195,8 +257,13 @@ async def retrieve_documents(request: RetrieveRequest, auth: AuthContext = Depen
     Returns:
         List[DocumentResult]: List of relevant documents
     """
+    # Initialize performance tracker
+    perf = PerformanceTracker(f"Retrieve Docs: '{request.query[:50]}...'")
+
     try:
-        return await document_service.retrieve_docs(
+        # Main retrieval operation
+        perf.start_phase("document_service_retrieve_docs")
+        results = await document_service.retrieve_docs(
             request.query,
             auth,
             request.filters,
@@ -207,6 +274,11 @@ async def retrieve_documents(request: RetrieveRequest, auth: AuthContext = Depen
             request.folder_name,
             request.end_user_id,
         )
+
+        # Log consolidated performance summary
+        perf.log_summary(f"Retrieved {len(results)} documents")
+
+        return results
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -227,16 +299,22 @@ async def batch_get_documents(request: Dict[str, Any], auth: AuthContext = Depen
     Returns:
         List[Document]: List of documents matching the IDs
     """
+    # Initialize performance tracker
+    perf = PerformanceTracker("Batch Get Documents")
+
     try:
         # Extract document_ids from request
+        perf.start_phase("request_extraction")
         document_ids = request.get("document_ids", [])
         folder_name = request.get("folder_name")
         end_user_id = request.get("end_user_id")
 
         if not document_ids:
+            perf.log_summary("No document IDs provided")
             return []
 
         # Create system filters for folder and user scoping
+        perf.start_phase("filter_creation")
         system_filters = {}
         if folder_name is not None:
             normalized_folder_name = normalize_folder_name(folder_name)
@@ -246,7 +324,14 @@ async def batch_get_documents(request: Dict[str, Any], auth: AuthContext = Depen
         if auth.app_id:
             system_filters["app_id"] = auth.app_id
 
-        return await document_service.batch_retrieve_documents(document_ids, auth, folder_name, end_user_id)
+        # Main batch retrieval operation
+        perf.start_phase("batch_retrieve_documents")
+        results = await document_service.batch_retrieve_documents(document_ids, auth, folder_name, end_user_id)
+
+        # Log consolidated performance summary
+        perf.log_summary(f"Retrieved {len(results)}/{len(document_ids)} documents")
+
+        return results
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -268,17 +353,23 @@ async def batch_get_chunks(request: Dict[str, Any], auth: AuthContext = Depends(
     Returns:
         List[ChunkResult]: List of chunk results
     """
+    # Initialize performance tracker
+    perf = PerformanceTracker("Batch Get Chunks")
+
     try:
         # Extract sources from request
+        perf.start_phase("request_extraction")
         sources = request.get("sources", [])
         folder_name = request.get("folder_name")
         end_user_id = request.get("end_user_id")
         use_colpali = request.get("use_colpali")
 
         if not sources:
+            perf.log_summary("No sources provided")
             return []
 
         # Convert sources to ChunkSource objects if needed
+        perf.start_phase("source_conversion")
         chunk_sources = []
         for source in sources:
             if isinstance(source, dict):
@@ -287,6 +378,7 @@ async def batch_get_chunks(request: Dict[str, Any], auth: AuthContext = Depends(
                 chunk_sources.append(source)
 
         # Create system filters for folder and user scoping
+        perf.start_phase("filter_creation")
         system_filters = {}
         if folder_name is not None:
             normalized_folder_name = normalize_folder_name(folder_name)
@@ -296,7 +388,16 @@ async def batch_get_chunks(request: Dict[str, Any], auth: AuthContext = Depends(
         if auth.app_id:
             system_filters["app_id"] = auth.app_id
 
-        return await document_service.batch_retrieve_chunks(chunk_sources, auth, folder_name, end_user_id, use_colpali)
+        # Main batch retrieval operation
+        perf.start_phase("batch_retrieve_chunks")
+        results = await document_service.batch_retrieve_chunks(
+            chunk_sources, auth, folder_name, end_user_id, use_colpali
+        )
+
+        # Log consolidated performance summary
+        perf.log_summary(f"Retrieved {len(results)}/{len(sources)} chunks")
+
+        return results
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -337,11 +438,17 @@ async def query_completion(
     Returns:
         CompletionResponse: Generated text completion or structured output
     """
+    # Initialize performance tracker
+    perf = PerformanceTracker(f"Query: '{request.query[:50]}...'")
+
     try:
         # Validate prompt overrides before proceeding
+        perf.start_phase("prompt_validation")
         if request.prompt_overrides:
             validate_prompt_overrides_with_http_exception(request.prompt_overrides, operation_type="query")
 
+        # Chat history retrieval
+        perf.start_phase("chat_history_retrieval")
         history_key = None
         history: List[Dict[str, Any]] = []
         if request.chat_id:
@@ -366,10 +473,13 @@ async def query_completion(
             )
 
         # Check query limits if in cloud mode
+        perf.start_phase("limits_check")
         if settings.MODE == "cloud" and auth.user_id:
             # Check limits before proceeding
             await check_and_increment_limits(auth, "query", 1)
 
+        # Main query processing
+        perf.start_phase("document_service_query")
         response = await document_service.query(
             request.query,
             auth,
@@ -388,8 +498,11 @@ async def query_completion(
             request.end_user_id,
             request.schema,
             history,
+            perf,  # Pass performance tracker
         )
 
+        # Chat history storage
+        perf.start_phase("chat_history_storage")
         if history_key:
             history.append(
                 {
@@ -405,6 +518,9 @@ async def query_completion(
                 auth.app_id,
                 history,
             )
+
+        # Log consolidated performance summary
+        perf.log_summary(f"Generated completion with {len(response.sources) if response.sources else 0} sources")
 
         return response
     except ValueError as e:
@@ -1497,6 +1613,67 @@ async def update_graph(
         validate_prompt_overrides_with_http_exception(operation_type="graph", error=e)
     except Exception as e:
         logger.error(f"Error updating graph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/graph/workflow/{workflow_id}/status", response_model=Dict[str, Any])
+@telemetry.track(operation_type="check_workflow_status", metadata_resolver=telemetry.workflow_status_metadata)
+async def check_workflow_status(
+    workflow_id: str,
+    run_id: Optional[str] = None,
+    auth: AuthContext = Depends(verify_token),
+) -> Dict[str, Any]:
+    """Check the status of a graph build/update workflow.
+
+    This endpoint polls the external graph API to check the status of an async operation.
+
+    Args:
+        workflow_id: The workflow ID returned from build/update operations
+        run_id: Optional run ID for the specific workflow run
+        auth: Authentication context
+
+    Returns:
+        Dict containing status ('running', 'completed', or 'failed') and optional result
+    """
+    try:
+        # Get the graph service (either local or API-based)
+        graph_service = document_service.graph_service
+
+        # Check if it's the MorphikGraphService
+        from core.services.morphik_graph_service import MorphikGraphService
+
+        if isinstance(graph_service, MorphikGraphService):
+            # Use the new check_workflow_status method
+            result = await graph_service.check_workflow_status(workflow_id=workflow_id, run_id=run_id, auth=auth)
+
+            # If the workflow is completed, update the corresponding graph status
+            if result.get("status") == "completed":
+                # Extract graph_id from workflow_id (format: "build-update-{graph_name}-...")
+                # This is a simple heuristic, adjust based on actual workflow_id format
+                parts = workflow_id.split("-")
+                if len(parts) >= 3:
+                    graph_name = parts[2]
+                    try:
+                        # Find and update the graph
+                        graphs = await document_service.db.list_graphs(auth)
+                        for graph in graphs:
+                            if graph.name == graph_name or workflow_id in graph.system_metadata.get("workflow_id", ""):
+                                graph.system_metadata["status"] = "completed"
+                                # Clear workflow tracking data
+                                graph.system_metadata.pop("workflow_id", None)
+                                graph.system_metadata.pop("run_id", None)
+                                await document_service.db.update_graph(graph)
+                                break
+                    except Exception as e:
+                        logger.warning(f"Failed to update graph status after workflow completion: {e}")
+
+            return result
+        else:
+            # For local graph service, workflows complete synchronously
+            return {"status": "completed", "result": {"message": "Local graph operations complete synchronously"}}
+
+    except Exception as e:
+        logger.error(f"Error checking workflow status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

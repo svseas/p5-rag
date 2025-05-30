@@ -21,6 +21,7 @@ import { AlertCircle, Share2, Plus, Network, Tag, Link, ArrowLeft } from "lucide
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { showAlert } from "@/components/ui/alert-system";
 
 // Dynamically import ForceGraphComponent to avoid SSR issues
 const ForceGraphComponent = dynamic(() => import("@/components/ForceGraphComponent"), {
@@ -45,6 +46,8 @@ interface Graph {
   updated_at: string;
   system_metadata?: {
     status?: string;
+    workflow_id?: string;
+    run_id?: string;
     [key: string]: unknown;
   };
 }
@@ -328,6 +331,35 @@ const GraphSection: React.FC<GraphSectionProps> = ({
     [apiBaseUrl, createHeaders, onSelectGraph]
   );
 
+  // Check workflow status
+  const checkWorkflowStatus = useCallback(
+    async (workflowId: string, runId?: string): Promise<{ status: string; result?: any }> => {
+      try {
+        const headers = createHeaders();
+        const params = new URLSearchParams();
+        if (runId) {
+          params.append("run_id", runId);
+        }
+
+        const url = `${apiBaseUrl}/graph/workflow/${encodeURIComponent(workflowId)}/status${params.toString() ? `?${params}` : ""}`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to check workflow status: ${response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (err) {
+        console.error("Error checking workflow status:", err);
+        throw err;
+      }
+    },
+    [apiBaseUrl, createHeaders]
+  );
+
   // Handle graph click
   const handleGraphClick = (graph: Graph) => {
     fetchGraph(graph.name);
@@ -370,7 +402,20 @@ const GraphSection: React.FC<GraphSectionProps> = ({
 
       const data = await response.json();
       setSelectedGraph(data);
-      setActiveTab("details"); // Switch to details tab after creation
+
+      // Check if this is an async operation
+      if (data.system_metadata?.workflow_id) {
+        // Graph is processing asynchronously
+        setActiveTab("details"); // Switch to details tab to show processing state
+        showAlert("Your graph is being created in the background. This may take a few minutes.", {
+          type: "info",
+          title: "Graph Creation Started",
+          duration: 5000,
+        });
+      } else {
+        // Legacy synchronous response
+        setActiveTab("details"); // Switch to details tab after creation
+      }
 
       // Invoke callback before refresh
       onGraphCreate?.(graphName, graphDocuments.length);
@@ -431,7 +476,20 @@ const GraphSection: React.FC<GraphSectionProps> = ({
 
       const data = await response.json();
       setSelectedGraph(data);
-      setActiveTab("details"); // Update the selected graph data
+
+      // Check if this is an async operation
+      if (data.system_metadata?.workflow_id) {
+        // Graph update is processing asynchronously
+        setActiveTab("details"); // Stay on details tab to show processing state
+        showAlert("Your graph is being updated in the background. This may take a few minutes.", {
+          type: "info",
+          title: "Graph Update Started",
+          duration: 5000,
+        });
+      } else {
+        // Legacy synchronous response
+        setActiveTab("details"); // Update the selected graph data
+      }
 
       // Invoke callback before refresh
       onGraphUpdate?.(selectedGraph.name, additionalDocuments.length);
@@ -443,8 +501,10 @@ const GraphSection: React.FC<GraphSectionProps> = ({
       setAdditionalDocuments([]);
       setAdditionalFilters("{}");
 
-      // Switch back to details tab
-      setActiveTab("details");
+      // Only switch back if not async
+      if (!data.system_metadata?.workflow_id) {
+        setActiveTab("details");
+      }
     } catch (err: unknown) {
       const error = err as Error;
       setError(`Error updating graph: ${error.message}`);
@@ -457,23 +517,44 @@ const GraphSection: React.FC<GraphSectionProps> = ({
 
   // Removed useEffect that depended on initializeGraph
 
-  // Poll for processing graphs
+  // Poll for processing graphs and workflow status
   useEffect(() => {
-    // Start polling only if at least one graph is processing
-    const hasProcessing = graphs.some(g => g.system_metadata?.status === "processing");
+    // Find graphs that are processing and have workflow_id
+    const processingGraphs = graphs.filter(
+      g => g.system_metadata?.status === "processing" && g.system_metadata?.workflow_id
+    );
 
-    if (!hasProcessing) return; // No need to poll
+    if (processingGraphs.length === 0) return; // No need to poll
 
     const id = setInterval(async () => {
-      await fetchGraphs();
-      // Refresh selected graph if it is still processing
-      if (selectedGraph?.system_metadata?.status === "processing") {
-        await fetchGraph(selectedGraph.name);
-      }
+      // Check workflow status for each processing graph
+      const statusChecks = processingGraphs.map(async (graph) => {
+        if (graph.system_metadata?.workflow_id) {
+          try {
+            const result = await checkWorkflowStatus(
+              graph.system_metadata.workflow_id,
+              graph.system_metadata.run_id
+            );
+
+            // If workflow is completed or failed, refresh the graph list
+            if (result.status === "completed" || result.status === "failed") {
+              await fetchGraphs();
+              // If this is the selected graph, refresh it too
+              if (selectedGraph?.name === graph.name) {
+                await fetchGraph(graph.name);
+              }
+            }
+          } catch (err) {
+            console.error(`Error checking workflow status for graph ${graph.name}:`, err);
+          }
+        }
+      });
+
+      await Promise.all(statusChecks);
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [graphs, selectedGraph, fetchGraphs, fetchGraph]);
+  }, [graphs, selectedGraph, fetchGraphs, fetchGraph, checkWorkflowStatus]);
 
   // Conditional rendering based on visualization state
   if (showVisualization && selectedGraph) {

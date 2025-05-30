@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { PreviewMessage, UIMessage } from "./ChatMessages";
+import { Copy, Check } from "./icons";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -26,6 +28,33 @@ const scrollbarStyles = `
     background-color: rgba(155, 155, 155, 0.7);
   }
 `;
+
+// Copy button component for agent messages
+function AgentCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-8 w-8 p-0"
+      onClick={handleCopy}
+      title={copied ? "Copied!" : "Copy message"}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+    </Button>
+  );
+}
 
 // Base interface for display objects
 export interface BaseDisplayObject {
@@ -401,13 +430,22 @@ export function AgentPreviewMessage({ message }: AgentMessageProps) {
     return <PreviewMessage message={message} />;
   }
 
+  // Combine all text content from display objects for copying
+  const fullContent = displayObjects
+    .filter(obj => obj.type === "text")
+    .map(obj => obj.content)
+    .join("\n\n");
+
   // Show only display objects for assistant messages that have them
   return (
     <div className="group relative flex px-4 py-3">
       <div className="flex w-full flex-col items-start">
         <div className="flex w-full max-w-3xl items-start gap-4">
           <div className="flex-1 space-y-2 overflow-hidden">
-            <div className="rounded-xl bg-muted p-4">
+            <div className="relative rounded-xl bg-muted p-4">
+              <div className="absolute right-2 top-2">
+                <AgentCopyButton content={fullContent} />
+              </div>
               <div className="space-y-3">
                 {displayObjects.map((obj, idx) => (
                   <DisplayObjectRenderer key={idx} object={obj} />

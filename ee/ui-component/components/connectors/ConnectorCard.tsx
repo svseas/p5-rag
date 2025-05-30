@@ -8,7 +8,6 @@ import {
   ingestConnectorFile,
   submitManualCredentials,
   type ConnectorAuthStatus,
-  type ManualAuthResponse,
   type CredentialField,
 } from "@/lib/connectorsApi";
 import { Button } from "@/components/ui/button";
@@ -82,10 +81,15 @@ export function ConnectorCard({
       connectionsSectionUrl.pathname = "/"; // Ensure we are at the root path
       connectionsSectionUrl.searchParams.set("section", "connections");
 
-      const authResponse = await initiateConnectorAuth(apiBaseUrl, connectorType, connectionsSectionUrl.toString(), authToken);
+      const authResponse = await initiateConnectorAuth(
+        apiBaseUrl,
+        connectorType,
+        connectionsSectionUrl.toString(),
+        authToken
+      );
 
       // Check if this is a manual credentials flow
-      if ('auth_type' in authResponse && authResponse.auth_type === 'manual_credentials') {
+      if ("auth_type" in authResponse && authResponse.auth_type === "manual_credentials") {
         // Handle manual credentials flow
         setCredentialFields(authResponse.required_fields);
         setCredentialInstructions(authResponse.instructions || "");
@@ -293,28 +297,24 @@ export function ConnectorCard({
               </div>
             )}
 
-            {credentialFields.map((field) => (
+            {credentialFields.map(field => (
               <div key={field.name} className="space-y-2">
                 <Label htmlFor={field.name}>
                   {field.label}
                   {field.required && <span className="text-red-500">*</span>}
                 </Label>
-                {field.description && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{field.description}</p>
-                )}
+                {field.description && <p className="text-sm text-gray-600 dark:text-gray-400">{field.description}</p>}
 
                 {field.type === "select" ? (
                   <Select
                     value={credentialValues[field.name] || ""}
-                    onValueChange={(value) =>
-                      setCredentialValues(prev => ({ ...prev, [field.name]: value }))
-                    }
+                    onValueChange={value => setCredentialValues(prev => ({ ...prev, [field.name]: value }))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder={`Select ${field.label}`} />
                     </SelectTrigger>
                     <SelectContent>
-                      {field.options?.map((option) => (
+                      {field.options?.map(option => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>
@@ -326,9 +326,7 @@ export function ConnectorCard({
                     id={field.name}
                     type={field.type}
                     value={credentialValues[field.name] || ""}
-                    onChange={(e) =>
-                      setCredentialValues(prev => ({ ...prev, [field.name]: e.target.value }))
-                    }
+                    onChange={e => setCredentialValues(prev => ({ ...prev, [field.name]: e.target.value }))}
                     placeholder={field.description}
                     required={field.required}
                   />

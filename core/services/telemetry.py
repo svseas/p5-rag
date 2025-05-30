@@ -829,6 +829,13 @@ class TelemetryService:
             ]
         )
 
+        self.workflow_status_metadata = MetadataExtractor(
+            [
+                MetadataField("workflow_id", "kwargs"),
+                MetadataField("run_id", "kwargs"),
+            ]
+        )
+
         self.set_folder_rule_metadata = MetadataExtractor(
             [
                 MetadataField("folder_id", "kwargs"),

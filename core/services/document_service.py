@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import tempfile
+import time  # Add time import for profiling
 import uuid
 from datetime import UTC, datetime
 from io import BytesIO
@@ -177,14 +178,30 @@ class DocumentService:
         use_colpali: Optional[bool] = None,
         folder_name: Optional[Union[str, List[str]]] = None,
         end_user_id: Optional[str] = None,
+        perf_tracker: Optional[Any] = None,  # Performance tracker from API layer
     ) -> List[ChunkResult]:
         """Retrieve relevant chunks."""
+
+        # Use provided performance tracker or create a local one
+        if perf_tracker:
+            local_perf = False
+        else:
+            # For standalone calls, create local performance tracking
+            local_perf = True
+            retrieve_start_time = time.time()
+            phase_times = {}
 
         # 4 configurations:
         # 1. No reranking, no colpali -> just return regular chunks
         # 2. No reranking, colpali  -> return colpali chunks + regular chunks - no need to run smaller colpali model
         # 3. Reranking, no colpali -> sort regular chunks by re-ranker score
         # 4. Reranking, colpali -> return merged chunks sorted by smaller colpali model score
+
+        # Setup phase
+        if perf_tracker:
+            perf_tracker.start_phase("retrieve_setup")
+        else:
+            setup_start = time.time()
 
         settings = get_settings()
         should_rerank = use_reranking if use_reranking is not None else settings.USE_RERANKING
@@ -205,7 +222,15 @@ class DocumentService:
         if using_colpali and self.colpali_embedding_model:
             embedding_tasks.append(self.colpali_embedding_model.embed_for_query(query))
 
+        if not perf_tracker:
+            phase_times["setup"] = time.time() - setup_start
+
         # Run embeddings and document authorization in parallel
+        if perf_tracker:
+            perf_tracker.start_phase("retrieve_embeddings_and_auth")
+        else:
+            parallel_start = time.time()
+
         results = await asyncio.gather(
             asyncio.gather(*embedding_tasks),
             self.db.find_authorized_and_filtered_documents(auth, filters, system_filters),
@@ -215,12 +240,21 @@ class DocumentService:
         query_embedding_regular = embedding_results[0]
         query_embedding_multivector = embedding_results[1] if len(embedding_results) > 1 else None
 
+        if not perf_tracker:
+            phase_times["embeddings_and_auth"] = time.time() - parallel_start
+
         logger.info("Generated query embedding")
 
         if not doc_ids:
             logger.info("No authorized documents found")
             return []
         logger.info(f"Found {len(doc_ids)} authorized documents")
+
+        # Vector search phase
+        if perf_tracker:
+            perf_tracker.start_phase("retrieve_vector_search")
+        else:
+            search_setup_start = time.time()
 
         # Check if we're using colpali multivector search
         search_multi = using_colpali and self.colpali_vector_store and query_embedding_multivector is not None
@@ -242,9 +276,19 @@ class DocumentService:
                 self.colpali_vector_store.query_similar(query_embedding_multivector, k=k, doc_ids=doc_ids)
             )
 
+        if not perf_tracker:
+            phase_times["search_setup"] = time.time() - search_setup_start
+
+        # Execute vector searches
+        if not perf_tracker:
+            vector_search_start = time.time()
+
         search_results = await asyncio.gather(*search_tasks)
         chunks = search_results[0]
         chunks_multivector = search_results[1] if len(search_results) > 1 else []
+
+        if not perf_tracker:
+            phase_times["vector_search"] = time.time() - vector_search_start
 
         logger.debug(f"Found {len(chunks)} similar chunks via regular embedding")
         if using_colpali:
@@ -255,20 +299,55 @@ class DocumentService:
 
         # Rerank chunks using the standard reranker if enabled and available
         # This handles configuration 3: Reranking without colpali
+        if perf_tracker:
+            perf_tracker.start_phase("retrieve_reranking")
+        else:
+            reranking_start = time.time()
+
         if chunks and use_standard_reranker:
             chunks = await self.reranker.rerank(query, chunks)
             chunks.sort(key=lambda x: x.score, reverse=True)
             chunks = chunks[:k]
             logger.debug(f"Reranked {k*10} chunks and selected the top {k}")
 
+        if not perf_tracker:
+            phase_times["reranking"] = time.time() - reranking_start
+
         # Combine multiple chunk sources if needed
+        if perf_tracker:
+            perf_tracker.start_phase("retrieve_chunk_combination")
+        else:
+            combination_start = time.time()
+
         chunks = await self._combine_multi_and_regular_chunks(
             query, chunks, chunks_multivector, should_rerank=should_rerank
         )
 
+        if not perf_tracker:
+            phase_times["chunk_combination"] = time.time() - combination_start
+
         # Create and return chunk results
+        if perf_tracker:
+            perf_tracker.start_phase("retrieve_result_creation")
+        else:
+            result_creation_start = time.time()
+
         results = await self._create_chunk_results(auth, chunks)
-        logger.info(f"Returning {len(results)} chunk results")
+
+        if not perf_tracker:
+            phase_times["result_creation"] = time.time() - result_creation_start
+
+        # Log performance summary only for standalone calls
+        if local_perf:
+            total_time = time.time() - retrieve_start_time
+            logger.info("=== DocumentService.retrieve_chunks Performance Summary ===")
+            logger.info(f"Total retrieve_chunks time: {total_time:.2f}s")
+            for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
+                percentage = (duration / total_time) * 100 if total_time > 0 else 0
+                logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
+            logger.info(f"Returning {len(results)} chunk results")
+            logger.info("==========================================================")
+
         return results
 
     async def _combine_multi_and_regular_chunks(
@@ -508,6 +587,7 @@ class DocumentService:
         end_user_id: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         chat_history: Optional[List[ChatMessage]] = None,
+        perf_tracker: Optional[Any] = None,  # Performance tracker from API layer
     ) -> CompletionResponse:
         """Generate completion using relevant chunks as context.
 
@@ -532,6 +612,20 @@ class DocumentService:
             end_user_id: Optional end-user ID to scope the operation to
             schema: Optional schema for structured output
         """
+        # Use provided performance tracker or create a local one for standalone calls
+        if perf_tracker:
+            local_perf = False
+        else:
+            local_perf = True
+            query_start_time = time.time()
+            phase_times = {}
+
+        # Graph routing check
+        if perf_tracker:
+            perf_tracker.start_phase("graph_routing_check")
+        else:
+            graph_check_start = time.time()
+
         if graph_name:
             # Use knowledge graph enhanced retrieval via GraphService
             return await self.graph_service.query_with_graph(
@@ -553,22 +647,64 @@ class DocumentService:
                 end_user_id=end_user_id,
             )
 
+        if not perf_tracker:
+            phase_times["graph_routing_check"] = time.time() - graph_check_start
+
         # Standard retrieval without graph
+        if perf_tracker:
+            perf_tracker.start_phase("chunk_retrieval")
+        else:
+            chunk_retrieval_start = time.time()
+
         chunks = await self.retrieve_chunks(
-            query, auth, filters, k, min_score, use_reranking, use_colpali, folder_name, end_user_id
+            query, auth, filters, k, min_score, use_reranking, use_colpali, folder_name, end_user_id, perf_tracker
         )
+
+        if not perf_tracker:
+            phase_times["chunk_retrieval"] = time.time() - chunk_retrieval_start
+
+        # Create document results
+        if perf_tracker:
+            perf_tracker.start_phase("document_results_creation")
+        else:
+            doc_results_start = time.time()
+
         documents = await self._create_document_results(auth, chunks)
 
+        if not perf_tracker:
+            phase_times["document_results_creation"] = time.time() - doc_results_start
+
         # Create augmented chunk contents
+        if perf_tracker:
+            perf_tracker.start_phase("content_augmentation")
+        else:
+            augmentation_start = time.time()
+
         chunk_contents = [chunk.augmented_content(documents[chunk.document_id]) for chunk in chunks]
 
+        if not perf_tracker:
+            phase_times["content_augmentation"] = time.time() - augmentation_start
+
         # Collect sources information
+        if perf_tracker:
+            perf_tracker.start_phase("sources_collection")
+        else:
+            sources_start = time.time()
+
         sources = [
             ChunkSource(document_id=chunk.document_id, chunk_number=chunk.chunk_number, score=chunk.score)
             for chunk in chunks
         ]
 
+        if not perf_tracker:
+            phase_times["sources_collection"] = time.time() - sources_start
+
         # Generate completion with prompt override if provided
+        if perf_tracker:
+            perf_tracker.start_phase("completion_generation")
+        else:
+            completion_start = time.time()
+
         custom_prompt_template = None
         if prompt_overrides and prompt_overrides.query:
             custom_prompt_template = prompt_overrides.query.prompt_template
@@ -585,8 +721,22 @@ class DocumentService:
 
         response = await self.completion_model.complete(request)
 
+        if not perf_tracker:
+            phase_times["completion_generation"] = time.time() - completion_start
+
         # Add sources information at the document service level
         response.sources = sources
+
+        # Log performance summary only for standalone calls
+        if local_perf:
+            total_time = time.time() - query_start_time
+            logger.info("=== DocumentService.query Performance Summary ===")
+            logger.info(f"Total query time: {total_time:.2f}s")
+            for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
+                percentage = (duration / total_time) * 100 if total_time > 0 else 0
+                logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
+            logger.info(f"Generated completion with {len(sources)} sources")
+            logger.info("================================================")
 
         return response
 

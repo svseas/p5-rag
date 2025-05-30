@@ -109,7 +109,7 @@ export async function initiateConnectorAuth(
 export async function submitManualCredentials(
   apiBaseUrl: string,
   connectorType: string,
-  credentials: Record<string, any>,
+  credentials: Record<string, string>,
   authToken: string | null
 ): Promise<{ status: string; message: string }> {
   const response = await fetch(`${apiBaseUrl}/ee/connectors/${connectorType}/auth/finalize`, {

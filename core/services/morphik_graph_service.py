@@ -38,6 +38,7 @@ class MorphikGraphService:
         endpoint: str,
         auth: AuthContext,  # auth is passed for context, actual token extraction TBD
         json_data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
     ) -> Any:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.graph_api_key}"}
 
@@ -45,8 +46,8 @@ class MorphikGraphService:
 
         async with httpx.AsyncClient() as client:
             try:
-                logger.debug(f"Making API request: {method} {url} Data: {json_data}")
-                response = await client.request(method, url, json=json_data, headers=headers)
+                logger.debug(f"Making API request: {method} {url} Data: {json_data} Params: {params}")
+                response = await client.request(method, url, json=json_data, headers=headers, params=params)
                 response.raise_for_status()  # Raise an exception for HTTP error codes (4xx or 5xx)
 
                 if response.status_code == 204:  # No Content
@@ -235,7 +236,18 @@ class MorphikGraphService:
                 json_data=request_data,
             )
             logger.info(f"Graph build API call for graph_id {graph.id} successful. Response: {api_response}")
-            graph.system_metadata["status"] = "completed"
+
+            # Check if the response contains workflow_id and run_id (async API)
+            if isinstance(api_response, dict) and "workflow_id" in api_response and "run_id" in api_response:
+                logger.info(
+                    f"Graph build is async. workflow_id: {api_response['workflow_id']}, run_id: {api_response['run_id']}"
+                )
+                graph.system_metadata["status"] = "processing"
+                graph.system_metadata["workflow_id"] = api_response["workflow_id"]
+                graph.system_metadata["run_id"] = api_response["run_id"]
+            else:
+                # Legacy synchronous response - mark as completed
+                graph.system_metadata["status"] = "completed"
         except Exception as e:
             logger.error(f"Failed to call graph build API for graph_id {graph.id}: {e}")
             graph.system_metadata["status"] = "build_api_failed"
@@ -302,11 +314,23 @@ class MorphikGraphService:
                     json_data=request_data,
                 )
                 logger.info(f"Graph update API call for graph_id {graph.id} successful. Response: {api_response}")
+
+                # Check if the response contains workflow_id and run_id (async API)
+                if isinstance(api_response, dict) and "workflow_id" in api_response and "run_id" in api_response:
+                    logger.info(
+                        f"Graph update is async. workflow_id: {api_response['workflow_id']}, run_id: {api_response['run_id']}"
+                    )
+                    graph.system_metadata["status"] = "processing"
+                    graph.system_metadata["workflow_id"] = api_response["workflow_id"]
+                    graph.system_metadata["run_id"] = api_response["run_id"]
+                else:
+                    # Legacy synchronous response - mark as completed
+                    graph.system_metadata["status"] = "completed"
+
                 # Update local graph object with new document IDs
                 current_doc_ids = set(graph.document_ids)
                 current_doc_ids.update(new_doc_ids_set)
                 graph.document_ids = list(current_doc_ids)
-                graph.system_metadata["status"] = "completed"
             except Exception as e:
                 logger.error(f"Failed to call graph update API for graph_id {graph.id}: {e}")
                 graph.system_metadata["status"] = "update_api_failed"
@@ -633,3 +657,41 @@ class MorphikGraphService:
         }
 
         return response
+
+    async def check_workflow_status(
+        self,
+        workflow_id: str,
+        run_id: Optional[str] = None,
+        auth: AuthContext = None,
+    ) -> Dict[str, Any]:
+        """Check the status of a workflow from the graph API.
+
+        Args:
+            workflow_id: The workflow ID to check
+            run_id: Optional run ID for the specific workflow run
+            auth: Authentication context
+
+        Returns:
+            Dict containing status and optional result
+        """
+        try:
+            # Build query params
+            params = {}
+            if run_id:
+                params["run_id"] = run_id
+
+            api_response = await self._make_api_request(
+                method="GET",
+                endpoint=f"/status/{workflow_id}",
+                auth=auth,
+                json_data=None,  # GET request, no body
+                params=params,
+            )
+
+            logger.info(f"Workflow status check for {workflow_id} successful. Response: {api_response}")
+            return api_response
+
+        except Exception as e:
+            logger.error(f"Failed to check workflow status for {workflow_id}: {e}")
+            # Return failed status instead of raising
+            return {"status": "failed", "error": str(e)}
