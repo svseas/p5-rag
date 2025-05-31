@@ -115,13 +115,14 @@ colpali_mode = "local" # "off", "local", or "api"
 host = "localhost"  # use "redis" for docker
 port = 6379
 
-[graph]
-model = "openai_gpt4-1-mini"
-enable_entity_resolution = true
-
 # [graph]
-# mode="api"
-# base_url="https://graph-api.morphik.ai"
+# model = "openai_gpt4-1-mini"
+# enable_entity_resolution = true
+
+[graph]
+mode="api"
+model = "openai_gpt4-1-mini"
+base_url="https://graph-api.morphik.ai"
 
 [telemetry]
 enabled = true
