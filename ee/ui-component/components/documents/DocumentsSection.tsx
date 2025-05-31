@@ -259,7 +259,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
       }
       // Dependencies: URL, auth, selected folder, and the folder list itself
     },
-    [effectiveApiUrl, authToken, selectedFolder, folders]
+    [effectiveApiUrl, authToken, selectedFolder, folders, documents.length]
   );
 
   // Fetch all folders

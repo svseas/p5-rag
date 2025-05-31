@@ -8,7 +8,7 @@ import time  # Add time import for profiling
 import uuid
 from datetime import UTC, datetime
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Type, Union
 
 import arq
 import filetype
@@ -588,7 +588,8 @@ class DocumentService:
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         chat_history: Optional[List[ChatMessage]] = None,
         perf_tracker: Optional[Any] = None,  # Performance tracker from API layer
-    ) -> CompletionResponse:
+        stream_response: Optional[bool] = False,
+    ) -> Union[CompletionResponse, tuple[AsyncGenerator[str, None], List[ChunkSource]]]:
         """Generate completion using relevant chunks as context.
 
         When graph_name is provided, the query will leverage the knowledge graph
@@ -717,6 +718,7 @@ class DocumentService:
             prompt_template=custom_prompt_template,
             schema=schema,
             chat_history=chat_history,
+            stream_response=stream_response,
         )
 
         response = await self.completion_model.complete(request)
@@ -724,21 +726,38 @@ class DocumentService:
         if not perf_tracker:
             phase_times["completion_generation"] = time.time() - completion_start
 
-        # Add sources information at the document service level
-        response.sources = sources
+        # Handle streaming vs non-streaming responses
+        if stream_response:
+            # For streaming responses, return the async generator and sources separately
 
-        # Log performance summary only for standalone calls
-        if local_perf:
-            total_time = time.time() - query_start_time
-            logger.info("=== DocumentService.query Performance Summary ===")
-            logger.info(f"Total query time: {total_time:.2f}s")
-            for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
-                percentage = (duration / total_time) * 100 if total_time > 0 else 0
-                logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
-            logger.info(f"Generated completion with {len(sources)} sources")
-            logger.info("================================================")
+            # Log performance summary for streaming calls
+            if local_perf:
+                total_time = time.time() - query_start_time
+                logger.info("=== DocumentService.query Performance Summary (Streaming) ===")
+                logger.info(f"Total setup time: {total_time:.2f}s")
+                for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (duration / total_time) * 100 if total_time > 0 else 0
+                    logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
+                logger.info(f"Starting streaming with {len(sources)} sources")
+                logger.info("=" * 59)
 
-        return response
+            return response, sources
+        else:
+            # Add sources information at the document service level for non-streaming
+            response.sources = sources
+
+            # Log performance summary only for standalone calls
+            if local_perf:
+                total_time = time.time() - query_start_time
+                logger.info("=== DocumentService.query Performance Summary ===")
+                logger.info(f"Total query time: {total_time:.2f}s")
+                for phase, duration in sorted(phase_times.items(), key=lambda x: x[1], reverse=True):
+                    percentage = (duration / total_time) * 100 if total_time > 0 else 0
+                    logger.info(f"  - {phase}: {duration:.2f}s ({percentage:.1f}%)")
+                logger.info(f"Generated completion with {len(sources)} sources")
+                logger.info("================================================")
+
+            return response
 
     async def ingest_text(
         self,

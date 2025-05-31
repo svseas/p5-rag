@@ -26,6 +26,7 @@ class MultiVectorStore(BaseVectorStore):
         uri: str,
         max_retries: int = 3,
         retry_delay: float = 1.0,
+        auto_initialize: bool = True,
     ):
         """Initialize PostgreSQL connection for multi-vector storage.
 
@@ -33,6 +34,7 @@ class MultiVectorStore(BaseVectorStore):
             uri: PostgreSQL connection URI
             max_retries: Maximum number of connection retry attempts
             retry_delay: Delay in seconds between retry attempts
+            auto_initialize: Whether to automatically initialize the store
         """
         # Convert SQLAlchemy URI to psycopg format if needed
         if uri.startswith("postgresql+asyncpg://"):
@@ -44,7 +46,17 @@ class MultiVectorStore(BaseVectorStore):
         self.pool: ConnectionPool = ConnectionPool(conninfo=self.uri, min_size=1, max_size=10, timeout=60)
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        # Don't initialize here - initialization will be handled separately
+
+        # Optionally initialize database objects (tables, functions, etc.)
+        # This ensures that required items like the max_sim function exist and
+        # avoids runtime errors when the store is first used.
+        if auto_initialize:
+            try:
+                self.initialize()
+            except Exception as exc:
+                # Log the failure but do not crash the application – callers
+                # can still attempt explicit initialization or handle errors.
+                logger.error("Auto-initialization of MultiVectorStore failed: %s", exc)
 
     @contextmanager
     def get_connection(self):

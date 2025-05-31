@@ -44,6 +44,10 @@ class CompletionQueryRequest(RetrieveRequest):
         None,
         description="Optional chat session ID for persisting conversation history",
     )
+    stream_response: Optional[bool] = Field(
+        False,
+        description="Whether to stream the response back in chunks",
+    )
 
 
 class IngestTextRequest(BaseModel):

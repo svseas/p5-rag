@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { showAlert } from "@/components/ui/alert-system";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 // Dynamically import ForceGraphComponent to avoid SSR issues
 const ForceGraphComponent = dynamic(() => import("@/components/ForceGraphComponent"), {
@@ -50,6 +51,12 @@ interface Graph {
     run_id?: string;
     [key: string]: unknown;
   };
+}
+
+interface WorkflowStatusResponse {
+  status: "running" | "completed" | "failed";
+  result?: Record<string, unknown>;
+  error?: string;
 }
 
 interface Entity {
@@ -103,6 +110,14 @@ const entityTypeColors: Record<string, string> = {
 
 const POLL_INTERVAL_MS = 60000; // 1 minute
 
+// Interface for document API response
+interface ApiDocumentResponse {
+  external_id?: string;
+  id?: string;
+  filename?: string;
+  name?: string;
+}
+
 const GraphSection: React.FC<GraphSectionProps> = ({
   apiBaseUrl,
   onSelectGraph,
@@ -147,6 +162,10 @@ const GraphSection: React.FC<GraphSectionProps> = ({
   const [loadingVisualization, setLoadingVisualization] = useState(false);
   const [selectedNode, setSelectedNode] = useState<NodeObject | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Document selection state
+  const [documents, setDocuments] = useState<{ id: string; filename: string }[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
 
   // Refs for graph visualization
   const graphContainerRef = useRef<HTMLDivElement>(null);
@@ -284,10 +303,61 @@ const GraphSection: React.FC<GraphSectionProps> = ({
     }
   }, [apiBaseUrl, createHeaders]);
 
+  // Fetch documents
+  const fetchDocuments = useCallback(async () => {
+    if (!apiBaseUrl) return;
+
+    setLoadingDocuments(true);
+    try {
+      console.log(`Fetching documents from: ${apiBaseUrl}/documents`);
+      const headers = createHeaders("application/json");
+      const response = await fetch(`${apiBaseUrl}/documents`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}), // Empty body to fetch all docs
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch documents: ${response.status} ${response.statusText}`);
+      }
+
+      const documentsData = await response.json();
+      console.log("Documents data received:", documentsData);
+
+      if (Array.isArray(documentsData)) {
+        // Transform documents to the format we need (id and filename)
+        const transformedDocs = documentsData
+          .map((doc: ApiDocumentResponse) => {
+            const id = doc.external_id || doc.id;
+            if (!id) return null; // Skip documents without valid IDs
+
+            return {
+              id,
+              filename: doc.filename || doc.name || `Document ${id}`,
+            };
+          })
+          .filter((doc): doc is { id: string; filename: string } => doc !== null);
+
+        setDocuments(transformedDocs);
+      } else {
+        console.error("Expected array for documents data but received:", typeof documentsData);
+      }
+    } catch (err) {
+      console.error("Error fetching documents:", err);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }, [apiBaseUrl, createHeaders]);
+
   // Fetch graphs on component mount
   useEffect(() => {
     fetchGraphs();
-  }, [fetchGraphs]);
+    // Also fetch documents when component mounts
+    if (authToken || apiBaseUrl.includes("localhost")) {
+      console.log("GraphSection: Fetching documents with auth token:", !!authToken);
+      fetchDocuments();
+    }
+  }, [fetchGraphs, fetchDocuments, authToken, apiBaseUrl]);
 
   // Fetch a specific graph
   const fetchGraph = useCallback(
@@ -333,7 +403,7 @@ const GraphSection: React.FC<GraphSectionProps> = ({
 
   // Check workflow status
   const checkWorkflowStatus = useCallback(
-    async (workflowId: string, runId?: string): Promise<{ status: string; result?: any }> => {
+    async (workflowId: string, runId?: string): Promise<WorkflowStatusResponse> => {
       try {
         const headers = createHeaders();
         const params = new URLSearchParams();
@@ -528,13 +598,10 @@ const GraphSection: React.FC<GraphSectionProps> = ({
 
     const id = setInterval(async () => {
       // Check workflow status for each processing graph
-      const statusChecks = processingGraphs.map(async (graph) => {
+      const statusChecks = processingGraphs.map(async graph => {
         if (graph.system_metadata?.workflow_id) {
           try {
-            const result = await checkWorkflowStatus(
-              graph.system_metadata.workflow_id,
-              graph.system_metadata.run_id
-            );
+            const result = await checkWorkflowStatus(graph.system_metadata.workflow_id, graph.system_metadata.run_id);
 
             // If workflow is completed or failed, refresh the graph list
             if (result.status === "completed" || result.status === "failed") {
@@ -678,24 +745,33 @@ const GraphSection: React.FC<GraphSectionProps> = ({
                       <h3 className="text-md mb-3 font-medium">Document Selection</h3>
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor="graph-documents">Document IDs (Optional)</Label>
-                          <Textarea
-                            id="graph-documents"
-                            placeholder="Enter document IDs separated by commas"
-                            value={graphDocuments.join(", ")}
-                            onChange={e =>
-                              setGraphDocuments(
-                                e.target.value
-                                  .split(",")
-                                  .map(id => id.trim())
-                                  .filter(id => id)
-                              )
-                            }
-                            className="min-h-[80px]"
+                          <Label htmlFor="graph-documents">Documents</Label>
+                          <MultiSelect
+                            options={[
+                              { label: "All Documents", value: "__none__" },
+                              ...(loadingDocuments ? [{ label: "Loading documents...", value: "loading" }] : []),
+                              ...documents.map(doc => ({
+                                label: doc.filename,
+                                value: doc.id,
+                              })),
+                            ]}
+                            selected={graphDocuments}
+                            onChange={(value: string[]) => {
+                              const filteredValues = value.filter(v => v !== "__none__");
+                              setGraphDocuments(filteredValues);
+                            }}
+                            placeholder="Select documents for the graph"
+                            className="w-full"
                           />
                           <p className="text-xs text-muted-foreground">
-                            Specify document IDs to include in the graph, or leave empty and use filters below.
+                            Select specific documents to include in the graph, or leave empty and use filters below.
                           </p>
+                        </div>
+
+                        <div className="relative flex items-center">
+                          <div className="flex-grow border-t border-muted"></div>
+                          <span className="mx-4 flex-shrink text-xs uppercase text-muted-foreground">Or</span>
+                          <div className="flex-grow border-t border-muted"></div>
                         </div>
 
                         <div className="space-y-2">
@@ -995,23 +1071,26 @@ const GraphSection: React.FC<GraphSectionProps> = ({
                   </div>
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="additional-documents">Additional Document IDs</Label>
-                      <Textarea
-                        id="additional-documents"
-                        placeholder="Enter document IDs separated by commas"
-                        value={additionalDocuments.join(", ")}
-                        onChange={e =>
-                          setAdditionalDocuments(
-                            e.target.value
-                              .split(",")
-                              .map(id => id.trim())
-                              .filter(id => id)
-                          )
-                        }
-                        className="min-h-[80px]"
+                      <Label htmlFor="additional-documents">Additional Documents</Label>
+                      <MultiSelect
+                        options={[
+                          { label: "All Documents", value: "__none__" },
+                          ...(loadingDocuments ? [{ label: "Loading documents...", value: "loading" }] : []),
+                          ...documents.map(doc => ({
+                            label: doc.filename,
+                            value: doc.id,
+                          })),
+                        ]}
+                        selected={additionalDocuments}
+                        onChange={(value: string[]) => {
+                          const filteredValues = value.filter(v => v !== "__none__");
+                          setAdditionalDocuments(filteredValues);
+                        }}
+                        placeholder="Select additional documents"
+                        className="w-full"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Specify additional document IDs to include in the graph.
+                        Select additional documents to include in the graph.
                       </p>
                     </div>
 
@@ -1037,7 +1116,7 @@ const GraphSection: React.FC<GraphSectionProps> = ({
                   </div>
                   <Button
                     onClick={handleUpdateGraph}
-                    disabled={loading || (additionalDocuments.length === 0 && additionalFilters === "{}")} // Disable if no input
+                    disabled={loading || (additionalDocuments.length === 0 && additionalFilters === "{}")}
                     className="w-full"
                   >
                     {loading ? (

@@ -49,6 +49,9 @@ const ChatSection: React.FC<ChatSectionProps> = ({
   // Selected chat ID – start with fresh conversation
   const [chatId, setChatId] = useState<string>(() => generateUUID());
 
+  // State for streaming toggle
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
+
   // Initialize our custom hook
   const { messages, input, setInput, status, handleSubmit, queryOptions, updateQueryOption } = useMorphikChat({
     chatId,
@@ -56,6 +59,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({
     authToken,
     initialMessages,
     onChatSubmit,
+    streamResponse: streamingEnabled,
   });
 
   // Helper to safely update options (updateQueryOption may be undefined in readonly mode)
@@ -94,7 +98,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({
     QueryOptions = {
     k: queryOptions.k ?? 5,
     min_score: queryOptions.min_score ?? 0.7,
-    temperature: queryOptions.temperature ?? 0.7,
+    temperature: queryOptions.temperature ?? 0.3,
     max_tokens: queryOptions.max_tokens ?? 1024,
     ...queryOptions,
   };
@@ -641,6 +645,16 @@ const ChatSection: React.FC<ChatSectionProps> = ({
                             id="use_colpali"
                             checked={safeQueryOptions.use_colpali}
                             onCheckedChange={checked => safeUpdateOption("use_colpali", checked)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="streaming_enabled" className="text-sm">
+                            Streaming Response
+                          </Label>
+                          <Switch
+                            id="streaming_enabled"
+                            checked={streamingEnabled}
+                            onCheckedChange={setStreamingEnabled}
                           />
                         </div>
                       </div>

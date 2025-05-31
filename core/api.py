@@ -10,6 +10,7 @@ import jwt
 import tomli
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware  # Import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -480,7 +481,7 @@ async def query_completion(
 
         # Main query processing
         perf.start_phase("document_service_query")
-        response = await document_service.query(
+        result = await document_service.query(
             request.query,
             auth,
             request.filters,
@@ -499,30 +500,93 @@ async def query_completion(
             request.schema,
             history,
             perf,  # Pass performance tracker
+            request.stream_response,
         )
 
-        # Chat history storage
-        perf.start_phase("chat_history_storage")
-        if history_key:
-            history.append(
-                {
-                    "role": "assistant",
-                    "content": response.completion,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
-            )
-            await redis.set(history_key, json.dumps(history))
-            await document_service.db.upsert_chat_history(
-                request.chat_id,
-                auth.user_id,
-                auth.app_id,
-                history,
-            )
+        # Handle streaming vs non-streaming responses
+        if request.stream_response:
+            # For streaming responses, unpack the tuple
+            response_stream, sources = result
 
-        # Log consolidated performance summary
-        perf.log_summary(f"Generated completion with {len(response.sources) if response.sources else 0} sources")
+            async def generate_stream():
+                full_content = ""
+                first_token_time = None
 
-        return response
+                async for chunk in response_stream:
+                    # Track time to first token
+                    if first_token_time is None:
+                        first_token_time = time.time()
+                        completion_start_to_first_token = first_token_time - perf.start_time
+                        perf.add_suboperation("completion_start_to_first_token", completion_start_to_first_token)
+                        logger.info(f"Completion start to first token: {completion_start_to_first_token:.2f}s")
+
+                    full_content += chunk
+                    yield f"data: {json.dumps({'content': chunk})}\n\n"
+
+                # Convert sources to the format expected by frontend
+                sources_info = [
+                    {"document_id": source.document_id, "chunk_number": source.chunk_number, "score": source.score}
+                    for source in sources
+                ]
+
+                # Send completion signal with sources
+                yield f"data: {json.dumps({'done': True, 'sources': sources_info})}\n\n"
+
+                # Handle chat history after streaming is complete
+                if history_key:
+                    history.append(
+                        {
+                            "role": "assistant",
+                            "content": full_content,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    await redis.set(history_key, json.dumps(history))
+                    await document_service.db.upsert_chat_history(
+                        request.chat_id,
+                        auth.user_id,
+                        auth.app_id,
+                        history,
+                    )
+
+                # Log consolidated performance summary for streaming
+                streaming_time = time.time() - first_token_time if first_token_time else 0
+                perf.add_suboperation("streaming_duration", streaming_time)
+                perf.log_summary(f"Generated streaming completion with {len(sources)} sources")
+
+            headers = {
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
+            }
+            return StreamingResponse(generate_stream(), media_type="text/event-stream", headers=headers)
+        else:
+            # For non-streaming responses, result is just the CompletionResponse
+            response = result
+
+            # Chat history storage for non-streaming responses
+            perf.start_phase("chat_history_storage")
+            if history_key:
+                history.append(
+                    {
+                        "role": "assistant",
+                        "content": response.completion,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+                await redis.set(history_key, json.dumps(history))
+                await document_service.db.upsert_chat_history(
+                    request.chat_id,
+                    auth.user_id,
+                    auth.app_id,
+                    history,
+                )
+
+            # Log consolidated performance summary
+            perf.log_summary(f"Generated completion with {len(response.sources) if response.sources else 0} sources")
+
+            return response
     except ValueError as e:
         validate_prompt_overrides_with_http_exception(operation_type="query", error=e)
     except PermissionError as e:

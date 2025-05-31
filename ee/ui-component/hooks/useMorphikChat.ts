@@ -39,6 +39,7 @@ interface UseMorphikChatProps {
   initialMessages?: UIMessage[];
   initialQueryOptions?: Partial<QueryOptions>;
   onChatSubmit?: (query: string, options: QueryOptions, currentMessages: UIMessage[]) => void;
+  streamResponse?: boolean;
 }
 
 export function useMorphikChat({
@@ -48,6 +49,7 @@ export function useMorphikChat({
   initialMessages = [],
   initialQueryOptions = {},
   onChatSubmit,
+  streamResponse = false,
 }: UseMorphikChatProps): UseMorphikChatReturn {
   const [messages, setMessages] = useState<UIMessage[]>(initialMessages);
   const [isLoading, setIsLoading] = useState(false);
@@ -88,7 +90,7 @@ export function useMorphikChat({
     use_reranking: initialQueryOptions.use_reranking ?? false,
     use_colpali: initialQueryOptions.use_colpali ?? true,
     max_tokens: initialQueryOptions.max_tokens ?? 1024,
-    temperature: initialQueryOptions.temperature ?? 0.5,
+    temperature: initialQueryOptions.temperature ?? 0.3,
     graph_name: initialQueryOptions.graph_name,
     folder_name: initialQueryOptions.folder_name,
   });
@@ -148,76 +150,163 @@ export function useMorphikChat({
           ...currentQueryOptions,
           filters: parsedFilters ?? {},
           chat_id: chatId,
+          stream_response: streamResponse,
         } as Record<string, unknown>;
 
-        const response = await fetch(`${apiBaseUrl}/query`, {
-          method: "POST",
-          headers: {
-            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
+        if (streamResponse) {
+          // Handle streaming response
+          const response = await fetch(`${apiBaseUrl}/query`, {
+            method: "POST",
+            headers: {
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-          setMessages(messagesBeforeUpdate);
-          throw new Error(errorData.detail || `Query failed: ${response.status} ${response.statusText}`);
-        }
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            setMessages(messagesBeforeUpdate);
+            throw new Error(errorData.detail || `Query failed: ${response.status} ${response.statusText}`);
+          }
 
-        const data = await response.json();
-        console.log("Query response:", data);
+          // Process streaming response
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+          let fullContent = "";
+          let assistantMessageId: string | null = null;
+          let messageCreated = false;
 
-        const assistantMessage: UIMessage = {
-          id: generateUUID(),
-          role: "assistant",
-          content: data.completion,
-          experimental_customData: { sources: data.sources },
-          createdAt: new Date(),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
+          if (reader) {
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-        if (data.sources && data.sources.length > 0) {
-          try {
-            console.log(`Fetching sources from ${apiBaseUrl}/batch/chunks`);
-            const sourcesResponse = await fetch(`${apiBaseUrl}/batch/chunks`, {
-              method: "POST",
-              headers: {
-                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                sources: data.sources,
-                folder_name: queryOptions.folder_name,
-                use_colpali: true,
-              }),
-            });
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n");
 
-            if (sourcesResponse.ok) {
-              const sourcesData = await sourcesResponse.json();
-              console.log("Sources data:", sourcesData);
+                for (const line of lines) {
+                  if (line.startsWith("data: ")) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+                      if (data.content) {
+                        fullContent += data.content;
 
-              setMessages(prev => {
-                const updatedMessages = [...prev];
-                const lastMessageIndex = updatedMessages.length - 1;
-
-                if (lastMessageIndex >= 0 && updatedMessages[lastMessageIndex].role === "assistant") {
-                  updatedMessages[lastMessageIndex] = {
-                    ...updatedMessages[lastMessageIndex],
-                    experimental_customData: {
-                      sources: sourcesData,
-                    },
-                  };
+                        // Create assistant message only when first content token arrives
+                        if (!messageCreated) {
+                          assistantMessageId = generateUUID();
+                          const assistantMessage: UIMessage = {
+                            id: assistantMessageId,
+                            role: "assistant",
+                            content: fullContent, // Start with the actual content, not empty string
+                            createdAt: new Date(),
+                          };
+                          setMessages(prev => [...prev, assistantMessage]);
+                          messageCreated = true;
+                        } else {
+                          // Update the assistant message with new content
+                          if (assistantMessageId) {
+                            setMessages(prev =>
+                              prev.map(msg => (msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg))
+                            );
+                          }
+                        }
+                      } else if (data.done) {
+                        // Streaming is complete, handle sources if provided
+                        if (data.sources && assistantMessageId) {
+                          setMessages(prev =>
+                            prev.map(msg =>
+                              msg.id === assistantMessageId
+                                ? { ...msg, experimental_customData: { sources: data.sources } }
+                                : msg
+                            )
+                          );
+                        }
+                        break;
+                      }
+                    } catch (e) {
+                      console.warn("Failed to parse streaming data:", line);
+                    }
+                  }
                 }
-
-                return updatedMessages;
-              });
-            } else {
-              console.error("Error fetching sources:", sourcesResponse.status, sourcesResponse.statusText);
+              }
+            } finally {
+              reader.releaseLock();
             }
-          } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : "An unknown error occurred";
-            console.error("Error fetching full source content:", errorMsg);
+          }
+        } else {
+          // Handle regular non-streaming response
+          const response = await fetch(`${apiBaseUrl}/query`, {
+            method: "POST",
+            headers: {
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            setMessages(messagesBeforeUpdate);
+            throw new Error(errorData.detail || `Query failed: ${response.status} ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          console.log("Query response:", data);
+
+          const assistantMessage: UIMessage = {
+            id: generateUUID(),
+            role: "assistant",
+            content: data.completion,
+            experimental_customData: { sources: data.sources },
+            createdAt: new Date(),
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+
+          // Handle sources for non-streaming responses
+          if (data.sources && data.sources.length > 0) {
+            try {
+              console.log(`Fetching sources from ${apiBaseUrl}/batch/chunks`);
+              const sourcesResponse = await fetch(`${apiBaseUrl}/batch/chunks`, {
+                method: "POST",
+                headers: {
+                  ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  sources: data.sources,
+                  folder_name: queryOptions.folder_name,
+                  use_colpali: true,
+                }),
+              });
+
+              if (sourcesResponse.ok) {
+                const sourcesData = await sourcesResponse.json();
+                console.log("Sources data:", sourcesData);
+
+                setMessages(prev => {
+                  const updatedMessages = [...prev];
+                  const lastMessageIndex = updatedMessages.length - 1;
+
+                  if (lastMessageIndex >= 0 && updatedMessages[lastMessageIndex].role === "assistant") {
+                    updatedMessages[lastMessageIndex] = {
+                      ...updatedMessages[lastMessageIndex],
+                      experimental_customData: {
+                        sources: sourcesData,
+                      },
+                    };
+                  }
+
+                  return updatedMessages;
+                });
+              } else {
+                console.error("Error fetching sources:", sourcesResponse.status, sourcesResponse.statusText);
+              }
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : "An unknown error occurred";
+              console.error("Error fetching full source content:", errorMsg);
+            }
           }
         }
       } catch (error) {
@@ -235,7 +324,7 @@ export function useMorphikChat({
         setIsLoading(false);
       }
     },
-    [apiBaseUrl, authToken, chatId, queryOptions, onChatSubmit]
+    [apiBaseUrl, authToken, chatId, queryOptions, onChatSubmit, streamResponse]
   );
 
   const handleSubmit = useCallback(
