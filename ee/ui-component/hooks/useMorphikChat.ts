@@ -174,14 +174,34 @@ export function useMorphikChat({
           const reader = response.body?.getReader();
           const decoder = new TextDecoder();
           let fullContent = "";
+          // Accumulation buffer to reduce React renders
+          const FLUSH_MS = 50;
+          let buffer = "";
+          let lastFlush = Date.now();
+          // Helper to (create or) update the assistant message
+          const flushMessage = () => {
+            if (!assistantMessageId) {
+              assistantMessageId = generateUUID();
+              const assistantMessage: UIMessage = {
+                id: assistantMessageId,
+                role: "assistant",
+                content: fullContent,
+                createdAt: new Date(),
+              };
+              setMessages(prev => [...prev, assistantMessage]);
+            } else {
+              const id = assistantMessageId;
+              setMessages(prev => prev.map(m => (m.id === id ? { ...m, content: fullContent } : m)));
+            }
+          };
           let assistantMessageId: string | null = null;
-          let messageCreated = false;
 
           if (reader) {
+            let streamFinished = false;
             try {
               while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
+                if (done || streamFinished) break; // stream closed or marked finished
 
                 const chunk = decoder.decode(value);
                 const lines = chunk.split("\n");
@@ -192,37 +212,55 @@ export function useMorphikChat({
                       const data = JSON.parse(line.slice(6));
                       if (data.content) {
                         fullContent += data.content;
+                        buffer += data.content;
 
-                        // Create assistant message only when first content token arrives
-                        if (!messageCreated) {
-                          assistantMessageId = generateUUID();
-                          const assistantMessage: UIMessage = {
-                            id: assistantMessageId,
-                            role: "assistant",
-                            content: fullContent, // Start with the actual content, not empty string
-                            createdAt: new Date(),
-                          };
-                          setMessages(prev => [...prev, assistantMessage]);
-                          messageCreated = true;
-                        } else {
-                          // Update the assistant message with new content
-                          if (assistantMessageId) {
-                            setMessages(prev =>
-                              prev.map(msg => (msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg))
-                            );
-                          }
+                        // Always flush on the very first token so the message appears immediately
+                        if (!assistantMessageId) {
+                          flushMessage();
+                          buffer = "";
+                          lastFlush = Date.now();
+                        } else if (Date.now() - lastFlush >= FLUSH_MS) {
+                          flushMessage();
+                          buffer = "";
+                          lastFlush = Date.now();
                         }
                       } else if (data.done) {
                         // Streaming is complete, handle sources if provided
-                        if (data.sources && assistantMessageId) {
-                          setMessages(prev =>
-                            prev.map(msg =>
-                              msg.id === assistantMessageId
-                                ? { ...msg, experimental_customData: { sources: data.sources } }
-                                : msg
-                            )
-                          );
+                        const sourcesShallow = data.sources ?? [];
+                        // ensure final content flushed
+                        flushMessage();
+
+                        // Enrich sources in background and attach
+                        if (sourcesShallow.length > 0 && assistantMessageId) {
+                          try {
+                            const enriched = await fetch(`${apiBaseUrl}/batch/chunks`, {
+                              method: "POST",
+                              headers: {
+                                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({
+                                sources: sourcesShallow,
+                                folder_name: queryOptions.folder_name,
+                                use_colpali: true,
+                              }),
+                            }).then(r => (r.ok ? r.json() : sourcesShallow));
+
+                            setMessages(prev =>
+                              prev.map(m =>
+                                m.id === assistantMessageId
+                                  ? { ...m, experimental_customData: { sources: enriched } }
+                                  : m
+                              )
+                            );
+                          } catch (err) {
+                            console.error("Failed to enrich sources: ", err);
+                          }
                         }
+
+                        // We received done – stop reading further
+                        await reader.cancel();
+                        streamFinished = true;
                         break;
                       }
                     } catch (e) {
@@ -230,8 +268,13 @@ export function useMorphikChat({
                     }
                   }
                 }
+                if (streamFinished) break;
               }
             } finally {
+              // Ensure any remaining buffered content is flushed once the stream ends
+              if (fullContent.length > 0) {
+                flushMessage();
+              }
               reader.releaseLock();
             }
           }
