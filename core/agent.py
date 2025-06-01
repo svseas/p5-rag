@@ -52,7 +52,16 @@ class MorphikAgent:
             self.tools_json = json.load(f)
 
         self.tool_definitions = []
+        graph_mode = self.settings.GRAPH_MODE if hasattr(self.settings, "GRAPH_MODE") else "local"
+
         for tool in self.tools_json:
+            # Filter tools based on graph mode
+            if graph_mode == "api" and tool["name"] == "knowledge_graph_query":
+                # Skip complex local-graph query tool when using remote API graphs
+                continue
+            if graph_mode != "api" and tool["name"] == "graph_api_retrieve":
+                # Skip API-specific retrieval tool when using local graphs
+                continue
             self.tool_definitions.append(
                 {
                     "type": "function",
@@ -90,17 +99,35 @@ class MorphikAgent:
 ]
 ```
 """
+        # Build bullet list based on graph mode
+        bullet_parts = [
+            "- retrieve_chunks: retrieve relevant text and image chunks from the knowledge base",
+            "- retrieve_document: get full document content or metadata",
+            "- document_analyzer: analyze documents for entities, facts, summary, sentiment, or full analysis",
+            "- execute_code: run Python code in a safe sandbox",
+        ]
+
+        if graph_mode == "api":
+            bullet_parts.append("- graph_api_retrieve: retrieve answers from a remote Morphik knowledge graph")
+        else:
+            bullet_parts.append(
+                "- knowledge_graph_query: query the knowledge graph for entities, paths, subgraphs, or list entities"
+            )
+
+        bullet_parts.extend(
+            [
+                "- list_graphs: list available knowledge graphs",
+                "- save_to_memory: save important information to persistent memory",
+                "- list_documents: list documents accessible to you",
+            ]
+        )
+
+        bullet_lines = "\n".join(bullet_parts)
+
         # System prompt
         self.system_prompt = f"""
 You are Morphik, an intelligent research assistant. You can use the following tools to help answer user queries:
-- retrieve_chunks: retrieve relevant text and image chunks from the knowledge base
-- retrieve_document: get full document content or metadata
-- document_analyzer: analyze documents for entities, facts, summary, sentiment, or full analysis
-- execute_code: run Python code in a safe sandbox
-- knowledge_graph_query: query the knowledge graph for entities, paths, subgraphs, or list entities
-- list_graphs: list available knowledge graphs
-- save_to_memory: save important information to persistent memory
-- list_documents: list documents accessible to you
+{bullet_lines}
 
 Use function calls to invoke these tools when needed. When you have gathered all necessary information,
 instead of providing a direct text response, you must return a structured response with display objects.
@@ -158,7 +185,15 @@ when citing different sources. Use markdown formatting for text content to impro
                 res = await execute_code(**args)
                 return res["content"]
             case "knowledge_graph_query":
+                if self.settings.GRAPH_MODE == "api":
+                    from core.tools.graph_tools_api import graph_api_retrieve
+
+                    return await graph_api_retrieve(document_service=self.document_service, auth=auth, **args)
                 return await knowledge_graph_query(document_service=self.document_service, auth=auth, **args)
+            case "graph_api_retrieve":
+                from core.tools.graph_tools_api import graph_api_retrieve
+
+                return await graph_api_retrieve(document_service=self.document_service, auth=auth, **args)
             case "list_graphs":
                 return await list_graphs(document_service=self.document_service, auth=auth, **args)
             case "save_to_memory":
