@@ -39,14 +39,25 @@ class MorphikGraphService:
         auth: AuthContext,  # auth is passed for context, actual token extraction TBD
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.graph_api_key}"}
 
         url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
 
-        async with httpx.AsyncClient() as client:
+        # Set default timeout based on endpoint type
+        if timeout is None:
+            if "visualization" in endpoint:
+                timeout = 1200.0  # 20 minutes for visualization requests
+            else:
+                timeout = 300.0  # 5 minutes for other requests
+
+        timeout_config = httpx.Timeout(timeout)
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             try:
-                logger.debug(f"Making API request: {method} {url} Data: {json_data} Params: {params}")
+                logger.debug(
+                    f"Making API request: {method} {url} Data: {json_data} Params: {params} Timeout: {timeout}s"
+                )
                 response = await client.request(method, url, json=json_data, headers=headers, params=params)
                 response.raise_for_status()  # Raise an exception for HTTP error codes (4xx or 5xx)
 
@@ -419,6 +430,9 @@ class MorphikGraphService:
 
         request_data = {"graph_id": graph_id}
         try:
+            logger.info(
+                f"Requesting visualization data for graph_id {graph_id} (may take up to 2 minutes for large graphs)"
+            )
             api_response = await self._make_api_request(
                 method="POST",
                 endpoint="/visualization",
@@ -468,6 +482,15 @@ class MorphikGraphService:
 
         except Exception as e:
             logger.error(f"Failed to call visualization API for graph_id {graph_id}: {e}")
+            # Check if this is a timeout error specifically
+            if "timeout" in str(e).lower() or "timed out" in str(e).lower():
+                logger.warning(
+                    f"Visualization API timed out for graph_id {graph_id}. The graph may be large and still processing."
+                )
+                # For timeout errors, we could either:
+                # 1. Return empty data with a warning (current behavior)
+                # 2. Raise the exception to let the UI handle it
+                # For now, keeping the existing behavior but adding better logging
             # Return empty visualization data on error
             return {"nodes": [], "links": []}
 
