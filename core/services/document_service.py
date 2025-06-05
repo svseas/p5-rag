@@ -646,6 +646,7 @@ class DocumentService:
                 prompt_overrides=prompt_overrides,
                 folder_name=folder_name,
                 end_user_id=end_user_id,
+                stream_response=stream_response,
             )
 
         if not perf_tracker:

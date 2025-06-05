@@ -1,14 +1,13 @@
 import logging
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Union
 
 import httpx
 
-from core.completion.base_completion import BaseCompletionModel
 from core.database.base_database import BaseDatabase
-from core.embedding.base_embedding_model import BaseEmbeddingModel
 from core.models.auth import AuthContext
-from core.models.completion import ChunkSource, CompletionRequest, CompletionResponse
-from core.models.documents import ChunkResult
+from core.models.completion import BaseCompletionModel, CompletionRequest, CompletionResponse
+from core.models.document import ChunkResult, ChunkSource
+from core.models.embedding import BaseEmbeddingModel
 from core.models.graph import Graph
 from core.models.prompts import GraphPromptOverrides, QueryPromptOverrides
 
@@ -531,7 +530,8 @@ class MorphikGraphService:
         end_user_id: Optional[str] = None,  # For document_service and CompletionRequest
         hop_depth: Optional[int] = None,  # maintain signature
         include_paths: Optional[bool] = None,  # maintain signature
-    ) -> CompletionResponse:
+        stream_response: Optional[bool] = False,  # Add stream_response parameter
+    ) -> Union[CompletionResponse, tuple[AsyncGenerator[str, None], List[ChunkSource]]]:
         """Generate completion using combined context from an external graph API and standard document retrieval.
 
         1. Retrieves a context string from the external graph API via /retrieval.
@@ -554,9 +554,10 @@ class MorphikGraphService:
             system_filters: System filters for retrieving the graph for external API.
             folder_name: Folder name for scoping standard retrieval and completion.
             end_user_id: End user ID for scoping standard retrieval and completion.
+            stream_response: Whether to return a streaming response.
 
         Returns:
-            CompletionResponse: The generated completion response.
+            CompletionResponse or tuple of (AsyncGenerator, List[ChunkSource]) for streaming.
         """
         graph_api_context_str = ""
         try:
@@ -647,18 +648,23 @@ class MorphikGraphService:
             prompt_template=custom_prompt_template,
             folder_name=folder_name,
             end_user_id=end_user_id,
+            stream_response=stream_response,
         )
 
         try:
             response = await self.completion_model.complete(completion_req)
         except Exception as e:
             logger.error(f"Error during completion generation: {e}")
-            return CompletionResponse(text="", error=f"Failed to generate completion: {e}")
+            if stream_response:
+                # Return empty stream and sources for error case
+                async def empty_stream():
+                    yield ""
 
-        # Add sources information from the standard_chunks_results
-        if hasattr(response, "sources") and response.sources is None:
-            response.sources = []  # Ensure sources is a list if None
+                return (empty_stream(), [])
+            else:
+                return CompletionResponse(text="", error=f"Failed to generate completion: {e}")
 
+        # Prepare sources from standard chunks
         response_sources = [
             ChunkSource(
                 document_id=chunk.document_id,
@@ -667,19 +673,29 @@ class MorphikGraphService:
             )
             for chunk in standard_chunks_results
         ]
-        # If response already has sources, this will overwrite. If it should append, logic needs change.
-        response.sources = response_sources
 
-        # Add metadata about retrieval
-        if not hasattr(response, "metadata") or response.metadata is None:
-            response.metadata = {}
+        # Handle streaming vs non-streaming responses
+        if stream_response:
+            # For streaming, response should be an async generator
+            return (response, response_sources)
+        else:
+            # Add sources information from the standard_chunks_results
+            if hasattr(response, "sources") and response.sources is None:
+                response.sources = []  # Ensure sources is a list if None
 
-        response.metadata["retrieval_info"] = {
-            "graph_api_context_used": bool(graph_api_context_str and graph_api_context_str.strip()),
-            "standard_chunks_retrieved": len(standard_chunks_results),
-        }
+            # If response already has sources, this will overwrite. If it should append, logic needs change.
+            response.sources = response_sources
 
-        return response
+            # Add metadata about retrieval
+            if not hasattr(response, "metadata") or response.metadata is None:
+                response.metadata = {}
+
+            response.metadata["retrieval_info"] = {
+                "graph_api_context_used": bool(graph_api_context_str and graph_api_context_str.strip()),
+                "standard_chunks_retrieved": len(standard_chunks_results),
+            }
+
+            return response
 
     async def check_workflow_status(
         self,

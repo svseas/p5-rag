@@ -450,6 +450,9 @@ class TelemetryService:
         return cls._instance
 
     def _initialize(self):
+        # Initialize metadata extractors
+        self._setup_metadata_extractors()
+
         if not TELEMETRY_ENABLED:
             return
 
@@ -549,9 +552,6 @@ class TelemetryService:
             description="Duration of operations",
             unit="ms",
         )
-
-        # Initialize metadata extractors
-        self._setup_metadata_extractors()
 
     def _setup_metadata_extractors(self):
         """Set up all the metadata extractors with their field definitions."""
