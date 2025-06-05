@@ -18,7 +18,7 @@ import { PreviewMessage } from "./ChatMessages";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
-import { AgentPreviewMessage, AgentUIMessage, ToolCall, DisplayObject, SourceObject } from "./AgentChatMessages";
+import { AgentPreviewMessage, AgentUIMessage, DisplayObject, SourceObject, ToolCall } from "./AgentChatMessages";
 
 interface ChatSectionProps {
   apiBaseUrl: string;
@@ -34,6 +34,19 @@ interface ApiDocumentResponse {
   id?: string;
   filename?: string;
   name?: string;
+}
+
+// Define an interface for the items coming from the chat history API
+// This should be identical or similar to the one in AgentChatSection.tsx
+interface ChatHistoryAPIItem {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  agent_data?: {
+    tool_history?: ToolCall[];
+    display_objects?: DisplayObject[];
+    sources?: SourceObject[];
+  };
 }
 
 /**
@@ -131,16 +144,16 @@ const ChatSection: React.FC<ChatSectionProps> = ({
             },
           });
           if (response.ok) {
-            const data = await response.json();
-            const agentMessagesFromHistory = data.map((m: any) => {
-              const baseMessage = {
+            const data: ChatHistoryAPIItem[] = await response.json(); // Typed data
+            const agentMessagesFromHistory = data.map((m: ChatHistoryAPIItem): AgentUIMessage => {
+              // Replaced any with ChatHistoryAPIItem, map to AgentUIMessage
+              const baseMessage: AgentUIMessage = {
                 id: generateUUID(),
                 role: m.role,
                 content: m.content,
                 createdAt: new Date(m.timestamp),
               };
 
-              // If this is an assistant message with agent_data, reconstruct experimental_agentData
               if (m.role === "assistant" && m.agent_data) {
                 return {
                   ...baseMessage,
@@ -151,7 +164,6 @@ const ChatSection: React.FC<ChatSectionProps> = ({
                   },
                 };
               }
-
               return baseMessage;
             });
             setAgentMessages(agentMessagesFromHistory);

@@ -4,6 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { RotateCw, Plus, ChevronsLeft, ChevronsRight } from "lucide-react";
+// import { DisplayObject } from "./AgentChatMessages"; // Potentially for a more robust type
 
 interface ChatSidebarProps {
   apiBaseUrl: string;
@@ -14,77 +15,84 @@ interface ChatSidebarProps {
   onToggle: () => void;
 }
 
+// Define types for message preview generation
+interface DisplayObjectPreview {
+  type: string;
+  content?: string;
+}
+
+interface AgentDataPreview {
+  display_objects?: DisplayObjectPreview[];
+}
+
+interface MessagePreviewContent {
+  content?: string;
+  agent_data?: AgentDataPreview;
+  // Include other properties from session.lastMessage if necessary for context
+}
+
 // Function to generate a better preview for agent messages
-const generateMessagePreview = (content: string, lastMessage?: any): string => {
-  if (!content) return "(no message)";
+const generateMessagePreview = (content: string, lastMessage?: MessagePreviewContent): string => {
+  if (!content && !lastMessage?.agent_data?.display_objects) return "(no message)";
+  if (!content && lastMessage?.agent_data?.display_objects) content = ""; // Ensure content is not null if we have display objects
 
   // Check if this is an agent message with agent_data
   if (lastMessage?.agent_data?.display_objects && Array.isArray(lastMessage.agent_data.display_objects)) {
     const displayObjects = lastMessage.agent_data.display_objects;
 
     // Find the first text display object
-    const textObject = displayObjects.find((obj: any) => obj.type === "text" && obj.content);
+    const textObject = displayObjects.find((obj: DisplayObjectPreview) => obj.type === "text" && obj.content);
 
-    if (textObject) {
+    if (textObject && textObject.content) {
       let textContent = textObject.content;
       // Remove markdown formatting for preview
-      textContent = textContent.replace(/#{1,6}\s+/g, ''); // Remove headers
-      textContent = textContent.replace(/\*\*(.*?)\*\*/g, '$1'); // Remove bold
-      textContent = textContent.replace(/\*(.*?)\*/g, '$1'); // Remove italic
-      textContent = textContent.replace(/`(.*?)`/g, '$1'); // Remove code
-      textContent = textContent.replace(/\n+/g, ' '); // Replace newlines with spaces
-      return textContent.trim().slice(0, 50);
+      textContent = textContent.replace(/#{1,6}\s+/g, "");
+      textContent = textContent.replace(/\*\*(.*?)\*\*/g, "$1");
+      textContent = textContent.replace(/\*(.*?)\*/g, "$1");
+      textContent = textContent.replace(/`(.*?)`/g, "$1");
+      textContent = textContent.replace(/\n+/g, " ");
+      return textContent.trim().slice(0, 50) || "Agent response (text)"; // ensure not empty string
     }
 
     // If no text objects, show a generic agent response message
-    return "Agent response";
+    return "Agent response (media)"; // Differentiated for clarity
   }
 
   // For regular text messages, avoid showing raw JSON
-  // First check if the content looks like it might be JSON
   const trimmedContent = content.trim();
-  if (trimmedContent.startsWith('[') || trimmedContent.startsWith('{')) {
+  if (trimmedContent.startsWith("[") || trimmedContent.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmedContent);
 
-      // If it's an array of display objects, extract text content
       if (Array.isArray(parsed)) {
-        const textObjects = parsed.filter((obj: any) => obj.type === "text" && obj.content);
-        if (textObjects.length > 0) {
-          // Get the first text object's content and clean it up
+        const textObjects = parsed.filter((obj: DisplayObjectPreview) => obj.type === "text" && obj.content);
+        if (textObjects.length > 0 && textObjects[0].content) {
           let textContent = textObjects[0].content;
-          // Remove markdown formatting for preview
-          textContent = textContent.replace(/#{1,6}\s+/g, ''); // Remove headers
-          textContent = textContent.replace(/\*\*(.*?)\*\*/g, '$1'); // Remove bold
-          textContent = textContent.replace(/\*(.*?)\*/g, '$1'); // Remove italic
-          textContent = textContent.replace(/`(.*?)`/g, '$1'); // Remove code
-          textContent = textContent.replace(/\n+/g, ' '); // Replace newlines with spaces
-          return textContent.trim().slice(0, 50);
+          textContent = textContent.replace(/#{1,6}\s+/g, "");
+          textContent = textContent.replace(/\*\*(.*?)\*\*/g, "$1");
+          textContent = textContent.replace(/\*(.*?)\*/g, "$1");
+          textContent = textContent.replace(/`(.*?)`/g, "$1");
+          textContent = textContent.replace(/\n+/g, " ");
+          return textContent.trim().slice(0, 50) || "Agent response (parsed text)";
         }
-
-        // If it's an array but no text objects, it's likely display objects
-        return "Agent response with media";
+        return "Agent response (parsed media)";
       }
 
-      // If it's a single object with content
-      if (parsed.content && typeof parsed.content === 'string') {
-        return parsed.content.slice(0, 50);
+      if (parsed.content && typeof parsed.content === "string") {
+        return parsed.content.slice(0, 50) || "Agent response (parsed content)";
       }
 
-      // If it's any other JSON structure, show generic message
-      return "Agent response";
-    } catch (e) {
-      // If JSON parsing fails, it might be a normal message that just starts with [ or {
-      // Only show first 50 chars if it doesn't look like a full JSON structure
+      return "Agent response (JSON)";
+    } catch (_e) {
+      console.log("Error parsing JSON:", _e);
+      // Prefixed 'e' with an underscore
       if (trimmedContent.length < 100 && !trimmedContent.includes('"type"')) {
         return content.slice(0, 50);
       }
-      // Otherwise, it's probably malformed JSON from an agent response
-      return "Agent response";
+      return "Agent response (error)";
     }
   }
 
-  // For regular text messages
   return content.slice(0, 50);
 };
 
@@ -139,7 +147,12 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   activeChatId === s.chatId && "bg-accent text-accent-foreground"
                 )}
               >
-                <div className="truncate">{generateMessagePreview(s.lastMessage?.content || "", s.lastMessage)}</div>
+                <div className="truncate">
+                  {generateMessagePreview(
+                    s.lastMessage?.content || "",
+                    s.lastMessage === null ? undefined : s.lastMessage
+                  )}
+                </div>
                 <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
                   {new Date(s.updatedAt || s.createdAt || Date.now()).toLocaleString()}
                 </div>

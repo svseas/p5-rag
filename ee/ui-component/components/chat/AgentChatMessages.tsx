@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import remarkGfm from "remark-gfm";
+import Image from "next/image";
 
 // Add custom scrollbar styles
 const scrollbarStyles = `
@@ -264,18 +265,15 @@ const DisplayObjectRenderer: React.FC<{ object: DisplayObject; isInSourceView?: 
 
     return (
       <div className={isInSourceView ? "my-1" : "my-2"}>
-        <div className="overflow-hidden rounded-md">
-          <img
+        <div className="relative overflow-hidden rounded-md" style={{ width: "100%", height: "auto" }}>
+          <Image
             src={hasImagePrefix ? object.content : `data:image/png;base64,${object.content}`}
             alt={object.caption || "Image"}
+            layout="responsive"
+            width={500}
+            height={300}
+            objectFit="contain"
             className="h-auto max-w-full"
-            onError={event => {
-              // Correctly typed event parameter
-              const target = event.target as HTMLImageElement;
-              if (!hasImagePrefix && target.src.includes("image/png")) {
-                target.src = `data:image/jpeg;base64,${object.content}`;
-              }
-            }}
           />
         </div>
         {object.caption && <div className="mt-1 text-sm text-muted-foreground">{object.caption}</div>}
@@ -338,11 +336,18 @@ const SourcesRenderer: React.FC<{ sources: SourceObject[] }> = ({ sources }) => 
         const imageUrl = content.startsWith("data:image/") ? content : `data:image/png;base64,${content}`;
 
         return (
-          <div className="flex justify-center rounded-md bg-muted p-4">
-            <img
+          <div
+            className="relative flex justify-center rounded-md bg-muted p-4"
+            style={{ width: "100%", height: "auto" }}
+          >
+            <Image
               src={imageUrl}
               alt={`Image from ${source.documentName}`}
-              className="max-h-96 max-w-full object-contain"
+              layout="responsive"
+              width={500}
+              height={300}
+              objectFit="contain"
+              className="max-h-96 max-w-full"
             />
           </div>
         );

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AgentPreviewMessage, AgentUIMessage, ToolCall, DisplayObject, SourceObject } from "./AgentChatMessages";
 import { Textarea } from "@/components/ui/textarea";
+// import { SendHorizontal } from "lucide-react";
 
 interface AgentChatSectionProps {
   apiBaseUrl: string;
@@ -17,6 +18,18 @@ interface AgentChatSectionProps {
   isReadonly?: boolean;
   onAgentSubmit?: (query: string) => void;
   chatId?: string;
+}
+
+// Define an interface for the items coming from the chat history API
+interface ChatHistoryAPIItem {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string; // Or number, depending on what the API returns before new Date()
+  agent_data?: {
+    tool_history?: ToolCall[];
+    display_objects?: DisplayObject[];
+    sources?: SourceObject[];
+  };
 }
 
 /**
@@ -31,13 +44,16 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
   chatId,
 }) => {
   // State for managing chat
-  const [messages, setMessages] = useState<AgentUIMessage[]>(
-    initialMessages.map(msg => ({
-      id: generateUUID(),
-      role: msg.role as "user" | "assistant",
-      content: msg.content || "",
-      createdAt: new Date(),
-    }))
+  const [messages, setMessages] = useState<AgentUIMessage[]>(() =>
+    initialMessages.map(
+      (m: ChatMessage): AgentUIMessage => ({
+        id: generateUUID(),
+        role: m.role,
+        content: m.content,
+        createdAt: m.timestamp ? new Date(m.timestamp) : new Date(),
+        // experimental_agentData can be added if ChatMessage has relevant fields or defaults to undefined
+      })
+    )
   );
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<"idle" | "submitted" | "completed">("idle");
@@ -58,30 +74,28 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
             },
           });
           if (response.ok) {
-            const data = await response.json();
-            const agentMessagesFromHistory = data.map((m: any) => {
-              const baseMessage = {
+            const data: ChatHistoryAPIItem[] = await response.json(); // Added type for data
+            const agentMessagesFromHistory = data.map(
+              (m: ChatHistoryAPIItem): AgentUIMessage => ({
                 id: generateUUID(),
                 role: m.role,
                 content: m.content,
                 createdAt: new Date(m.timestamp),
-              };
-
-              // If this is an assistant message with agent_data, reconstruct experimental_agentData
-              if (m.role === "assistant" && m.agent_data) {
-                return {
-                  ...baseMessage,
-                  experimental_agentData: {
-                    tool_history: m.agent_data.tool_history || [],
-                    displayObjects: m.agent_data.display_objects || [],
-                    sources: m.agent_data.sources || [],
-                  },
-                };
-              }
-
-              return baseMessage;
-            });
-            setMessages(agentMessagesFromHistory);
+                ...(m.role === "assistant" && m.agent_data
+                  ? {
+                      experimental_agentData: {
+                        tool_history: m.agent_data.tool_history || [],
+                        displayObjects: m.agent_data.display_objects || [],
+                        sources: m.agent_data.sources || [],
+                      },
+                    }
+                  : {}),
+              })
+            );
+            // Only set messages if initialMessages was empty and we loaded history
+            if (initialMessages.length === 0) {
+              setMessages(agentMessagesFromHistory);
+            }
           }
         } catch (err) {
           console.error("Failed to load agent chat history", err);
@@ -89,11 +103,22 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
       }
     };
 
-    // Only load if we don't have initial messages
-    if (initialMessages.length === 0) {
+    // if initialMessages are provided, use them, otherwise load history.
+    if (initialMessages.length === 0 && chatId) {
       loadAgentHistory();
+    } else if (initialMessages.length > 0 && messages.length === 0) {
+      setMessages(
+        initialMessages.map(
+          (m: ChatMessage): AgentUIMessage => ({
+            id: generateUUID(),
+            role: m.role,
+            content: m.content,
+            createdAt: m.timestamp ? new Date(m.timestamp) : new Date(),
+          })
+        )
+      );
     }
-  }, [chatId, apiBaseUrl, authToken, initialMessages.length]);
+  }, [chatId, apiBaseUrl, authToken, initialMessages, messages.length]);
 
   // Function to handle form submission
   const handleSubmit = async (e?: React.FormEvent) => {
