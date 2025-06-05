@@ -3,11 +3,12 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Union
 
 import httpx
 
+from core.completion.base_completion import BaseCompletionModel
 from core.database.base_database import BaseDatabase
+from core.embedding.base_embedding_model import BaseEmbeddingModel
 from core.models.auth import AuthContext
-from core.models.completion import BaseCompletionModel, CompletionRequest, CompletionResponse
-from core.models.document import ChunkResult, ChunkSource
-from core.models.embedding import BaseEmbeddingModel
+from core.models.completion import ChunkSource, CompletionRequest, CompletionResponse
+from core.models.documents import ChunkResult
 from core.models.graph import Graph
 from core.models.prompts import GraphPromptOverrides, QueryPromptOverrides
 
