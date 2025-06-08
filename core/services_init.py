@@ -28,12 +28,11 @@ from core.reranker.flag_reranker import FlagReranker
 from core.services.document_service import DocumentService
 from core.storage.local_storage import LocalStorage
 from core.storage.s3_storage import S3Storage
-from core.vector_store.milvus_multivector_store import MilvusMultiVectorStore
-from core.vector_store.milvus_vector_store import MilvusVectorStore
 from core.vector_store.multi_vector_store import MultiVectorStore
 from core.vector_store.pgvector_store import PGVectorStore
 
 logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Global settings
@@ -51,18 +50,8 @@ if not settings.POSTGRES_URI:
 database = PostgresDatabase(uri=settings.POSTGRES_URI)
 logger.debug("Created PostgresDatabase singleton")
 
-# Initialize vector store based on configuration
-match settings.VECTOR_STORE_PROVIDER:
-    case "pgvector":
-        vector_store = PGVectorStore(uri=settings.POSTGRES_URI)
-        logger.info("Using PGVector for main vector storage")
-    case "milvus":
-        vector_store = MilvusVectorStore()
-        logger.info("Using Milvus for main vector storage")
-    case _:
-        raise ValueError(f"Unsupported vector store provider: {settings.VECTOR_STORE_PROVIDER}")
-
-logger.debug("Created vector store singleton")
+vector_store = PGVectorStore(uri=settings.POSTGRES_URI)
+logger.debug("Created PGVectorStore singleton")
 
 # ---------------------------------------------------------------------------
 # Object storage
@@ -133,31 +122,16 @@ cache_factory = LlamaCacheFactory(Path(settings.STORAGE_PATH))
 # ColPali multi-vector support
 # ---------------------------------------------------------------------------
 
-colpali_embedding_model = None
-colpali_vector_store = None
-
 match settings.COLPALI_MODE:
     case "off":
         colpali_embedding_model = None
         colpali_vector_store = None
     case "local":
         colpali_embedding_model = ColpaliEmbeddingModel()
-        # Check if we should use Milvus or PostgreSQL for multi-vector storage
-        if settings.MULTIVECTOR_PROVIDER.lower() == "milvus":
-            colpali_vector_store = MilvusMultiVectorStore(batch_size=settings.MILVUS_BATCH_SIZE)
-            logger.info("Using Milvus for ColPali multi-vector storage")
-        else:
-            colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
-            logger.info("Using PostgreSQL for ColPali multi-vector storage")
+        colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI, enable_external_storage=True, auto_initialize=False)
     case "api":
         colpali_embedding_model = ColpaliApiEmbeddingModel()
-        # Check if we should use Milvus or PostgreSQL for multi-vector storage
-        if settings.MULTIVECTOR_PROVIDER.lower() == "milvus":
-            colpali_vector_store = MilvusMultiVectorStore(batch_size=settings.MILVUS_BATCH_SIZE)
-            logger.info("Using Milvus for ColPali multi-vector storage (API mode)")
-        else:
-            colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI)
-            logger.info("Using PostgreSQL for ColPali multi-vector storage (API mode)")
+        colpali_vector_store = MultiVectorStore(uri=settings.POSTGRES_URI, enable_external_storage=True, auto_initialize=False)
     case _:
         raise ValueError(f"Unsupported COLPALI_MODE: {settings.COLPALI_MODE}")
 
