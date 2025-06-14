@@ -802,9 +802,11 @@ export function PDFViewer({ apiBaseUrl, authToken, initialDocumentId }: PDFViewe
 
         // Use the download URL to load the document
         const response = await fetch(downloadUrl, {
-          headers: {
-            ...(authToken && { Authorization: `Bearer ${authToken}` }),
-          },
+          headers: downloadUrl.includes("s3.amazonaws.com")
+            ? {}
+            : {
+                ...(authToken && { Authorization: `Bearer ${authToken}` }),
+              },
         });
 
         if (!response.ok) {

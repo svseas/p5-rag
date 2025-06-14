@@ -24,7 +24,7 @@ class PDFViewer:
         # Generate session and user IDs if not provided
         self.session_id: str = session_id or str(uuid.uuid4())
         self.user_id: str = user_id or "anonymous"
-        self.client = httpx.Client(base_url=self.api_base_url)
+        self.client = httpx.Client(base_url=self.api_base_url, follow_redirects=True)
         # Execute summarization in parallel batches of 10
         self.summaries: List[str] = []  # [self._summarize_page(i) for i in range(self.total_pages)]
 

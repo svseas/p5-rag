@@ -93,7 +93,7 @@ const generateMessagePreview = (content: string, lastMessage?: MessagePreviewCon
     }
   }
 
-  // for regular chat 
+  // for regular chat
   content = content.replace(/#{1,6}\s+/g, "");
   content = content.replace(/\*\*(.*?)\*\*/g, "$1");
   content = content.replace(/\*(.*?)\*/g, "$1");
@@ -140,11 +140,11 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
       </div>
       <ScrollArea className="flex-1">
         <ul className="p-1">
-          {isLoading && <li className="py-1 text-xs text-center text-muted-foreground">Loading…</li>}
+          {isLoading && <li className="py-1 text-center text-xs text-muted-foreground">Loading…</li>}
           {!isLoading && sessions.length === 0 && (
-            <li className="px-2 py-1 text-xs text-muted-foreground text-center">No chats yet</li>
+            <li className="px-2 py-1 text-center text-xs text-muted-foreground">No chats yet</li>
           )}
-          {sessions.map((session) => (
+          {sessions.map(session => (
             <li key={session.chatId} className="mb-1">
               <button
                 onClick={() => onSelect(session.chatId)}
