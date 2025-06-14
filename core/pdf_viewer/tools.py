@@ -26,7 +26,9 @@ class PDFViewer:
         self.user_id: str = user_id or "anonymous"
         self.client = httpx.Client(base_url=self.api_base_url, follow_redirects=True)
         # Execute summarization in parallel batches of 10
-        self.summaries: List[str] = []  # [self._summarize_page(i) for i in range(self.total_pages)]
+        self.summaries: List[str] = [
+            ""
+        ] * self.total_pages  # [self._summarize_page(i) for i in range(self.total_pages)]
 
     def _make_api_call(self, method: str, endpoint: str, json_data: dict = None) -> httpx.Response:
         """Make API call to PDF viewer for UI side effects with session and user scoping."""
@@ -194,9 +196,12 @@ class PDFViewer:
 
     def get_page_summary(self, page_number: int) -> str:
         """Get the summary for a specific page."""
-        if 0 <= page_number < self.total_pages:
-            return self.summaries[page_number]
-        return f"Invalid page number. Must be between 0 and {self.total_pages - 1}"
+        if self.summaries[page_number] == "":
+            self.summaries[page_number] = self._summarize_page(page_number)
+        return self.summaries[page_number]
+        # if 0 <= page_number < self.total_pages:
+        #     return self.summaries[page_number]
+        # return f"Invalid page number. Must be between 0 and {self.total_pages - 1}"
 
     def _summarize_page(self, page_number: int) -> str:
         """Summarize a page using Gemini 2.5 Flash model."""
