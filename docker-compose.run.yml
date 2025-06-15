@@ -12,8 +12,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      # Mount a custom config file. If omitted, the container's default is used.
-      - ./morphik.toml:/app/morphik.toml:ro
+      # To use a custom config, create a 'morphik.toml' file locally and uncomment the following line.
+      # - ./morphik.toml:/app/morphik.toml:ro
       # Persist storage for uploaded files
       - ./storage:/app/storage
       # Persist logs
@@ -43,6 +43,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
+      # To use a custom config, create a 'morphik.toml' file locally and uncomment the following line.
+      # - ./morphik.toml:/app/morphik.toml:ro
       - ./storage:/app/storage
       - ./logs:/app/logs
       - ./morphik.toml:/app/morphik.toml:ro
