@@ -1,5 +1,5 @@
 [api]
-host = "0.0.0.0" # Needs to be "0.0.0.0" for docker
+host = "0.0.0.0"
 port = 8000
 reload = true
 
@@ -45,10 +45,10 @@ azure_embedding = { model_name = "text-embedding-ada-002", api_base = "YOUR_AZUR
 #### Component configurations ####
 
 [agent]
-model = "claude_sonnet" # Model for the agent logic
+model = "ollama_qwen_vision" # Model for the agent logic
 
 [completion]
-model = "ollama_qwen_vision" #"openai_gpt4o"  # Reference to a key in registered_models
+model = "ollama_qwen_vision" #"openai_gpt4-1-mini"  # Reference to a key in registered_models
 default_max_tokens = "1000"
 default_temperature = 0.3
 
@@ -66,7 +66,7 @@ retry_delay = 1.0        # Initial delay between retries in seconds
 [embedding]
 model = "ollama_embedding"  # Reference to registered model
 dimensions = 768
-similarity_metric = "dotProduct"
+similarity_metric = "cosine"
 
 [parser]
 chunk_size = 6000
@@ -89,7 +89,7 @@ model_name = "BAAI/bge-reranker-large"
 query_max_length = 256
 passage_max_length = 512
 use_fp16 = true
-device = "cpu" # use "cpu" if on docker and using a mac, "cuda" if cuda enabled device
+device = "mps" # use "cpu" if on docker and using a mac, "cuda" if cuda enabled device
 
 [storage]
 provider = "local"
@@ -98,8 +98,7 @@ storage_path = "./storage"
 # [storage]
 # provider = "aws-s3"
 # region = "us-east-2"
-# bucket_name = "morphik-storage"
-# storage_path = "morphik-storage"
+# bucket_name = "morphik-s3-storage"
 
 [vector_store]
 provider = "pgvector"
@@ -110,23 +109,22 @@ batch_size = 4096
 
 [morphik]
 enable_colpali = true
-mode = "self_hosted" # "cloud"  # "cloud" or "self_hosted"
+mode = "self_hosted"  # "cloud" or "self_hosted"
 api_domain = "api.morphik.ai"  # API domain for cloud URIs
 # Only call the embedding API if colpali_mode is "api"
 morphik_embedding_api_domain = "http://localhost:6000"  # endpoint for multivector embedding service
 colpali_mode = "local" # "off", "local", or "api"
 
-
-[pdf_viewer]
-frontend_url = "http://localhost:3000/api/pdf" # "https://morphik.ai/api/pdf" # "http://localhost:3000/api/pdf" # "https://morphik.ai/api/pdf"
+[redis]
+host = "localhost"  # use "redis" for docker
+port = 6379
 
 [graph]
-model = "openai_gpt4-1-mini"
+model = "ollama_qwen_vision"
 enable_entity_resolution = true
 
 # [graph]
 # mode="api"
-# model = "openai_gpt4-1-mini"
 # base_url="https://graph-api.morphik.ai"
 
 [telemetry]
@@ -134,7 +132,7 @@ enabled = true
 honeycomb_enabled = true
 honeycomb_endpoint = "https://api.honeycomb.io"
 honeycomb_proxy_endpoint = "https://otel-proxy.onrender.com"
-service_name = "databridge-core-hosted"
+service_name = "databridge-core"
 otlp_timeout = 10
 otlp_max_retries = 3
 otlp_retry_delay = 1
