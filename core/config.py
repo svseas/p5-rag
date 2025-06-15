@@ -331,13 +331,8 @@ def get_settings() -> Settings:
             "PDF_VIEWER_FRONTEND_URL": config["pdf_viewer"].get("frontend_url", "https://morphik.ai/api/pdf")
         }
 
-    # load redis config
+    # Redis config is now only read from environment variables
     redis_config = {}
-    if "redis" in config:
-        redis_config = {
-            "REDIS_HOST": config["redis"].get("host", "localhost"),
-            "REDIS_PORT": int(config["redis"].get("port", 6379)),
-        }
 
     # load graph config
     graph_config = (
