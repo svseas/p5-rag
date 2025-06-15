@@ -51,7 +51,7 @@ def check_and_start_redis():
     """Check if the Redis container is running, start if necessary."""
     try:
         # Check if container exists and is running
-        check_running_cmd = ["sudo", "docker", "ps", "-q", "-f", "name=morphik-redis"]
+        check_running_cmd = ["docker", "ps", "-q", "-f", "name=morphik-redis"]
         running_container = subprocess.check_output(check_running_cmd).strip()
 
         if running_container:
@@ -59,17 +59,17 @@ def check_and_start_redis():
             return
 
         # Check if container exists but is stopped
-        check_exists_cmd = ["sudo", "docker", "ps", "-a", "-q", "-f", "name=morphik-redis"]
+        check_exists_cmd = ["docker", "ps", "-a", "-q", "-f", "name=morphik-redis"]
         existing_container = subprocess.check_output(check_exists_cmd).strip()
 
         if existing_container:
             logging.info("Starting existing Redis container (morphik-redis)...")
-            subprocess.run(["sudo", "docker", "start", "morphik-redis"], check=True, capture_output=True)
+            subprocess.run(["docker", "start", "morphik-redis"], check=True, capture_output=True)
             logging.info("Redis container started.")
         else:
             logging.info("Creating and starting Redis container (morphik-redis)...")
             subprocess.run(
-                ["sudo", "docker", "run", "-d", "--name", "morphik-redis", "-p", "6379:6379", "redis"],
+                ["docker", "run", "-d", "--name", "morphik-redis", "-p", "6379:6379", "redis"],
                 check=True,
                 capture_output=True,
             )
@@ -261,7 +261,6 @@ def main():
 
     # Load environment variables from .env file
     load_dotenv()
-    args.skip_ollama_check = True
 
     # Check if Ollama is required and running
     if not args.skip_ollama_check:
