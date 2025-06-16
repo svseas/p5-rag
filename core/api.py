@@ -22,6 +22,7 @@ from core.database.postgres_database import PostgresDatabase
 from core.dependencies import get_redis_pool
 from core.limits_utils import check_and_increment_limits
 from core.logging_config import setup_logging
+from core.middleware.profiling import ProfilingMiddleware
 from core.models.auth import AuthContext, EntityType
 from core.models.chat import ChatMessage
 from core.models.completion import ChunkSource, CompletionResponse
@@ -104,6 +105,12 @@ class PerformanceTracker:
 # ---------------------------------------------------------------------------
 
 app = FastAPI(lifespan=lifespan)
+
+# --------------------------------------------------------
+# Optional per-request profiler (ENABLE_PROFILING=1)
+# --------------------------------------------------------
+
+app.add_middleware(ProfilingMiddleware)
 
 # Add CORS middleware (same behaviour as before refactor)
 app.add_middleware(
