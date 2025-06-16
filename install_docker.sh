@@ -45,7 +45,7 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ "$(uname -m)" == "arm64" ]]; then
     print_warning "You are on an Apple Silicon Mac (arm64)."
     print_warning "For best performance (including GPU access), we strongly recommend the Direct Installation method."
     print_warning "You can find the guide here: $DIRECT_INSTALL_URL"
-    read -p "Do you want to continue with the Docker installation anyway? (y/N): " choice
+    read -p "Do you want to continue with the Docker installation anyway? (y/N): " choice < /dev/tty
     if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
         echo "Installation aborted by user."
         exit 0
@@ -70,7 +70,7 @@ OPENAI_API_KEY=
 JWT_SECRET_KEY=your-super-secret-key-that-is-long-and-random-$(openssl rand -hex 16)
 EOF
 
-read -p "Please enter your OpenAI API Key (it will be saved to the .env file): " openai_api_key
+read -p "Please enter your OpenAI API Key (it will be saved to the .env file): " openai_api_key < /dev/tty
 if [[ -z "$openai_api_key" ]]; then
     print_error "OpenAI API Key cannot be empty."
 fi
@@ -82,14 +82,14 @@ print_success "'.env' file has been configured with your API key."
 
 # 5. Ask about custom configuration
 print_info "The default setup uses the standard OpenAI models."
-read -p "Do you want to customize the configuration (e.g., change models) before starting? (y/N): " customize_choice
+read -p "Do you want to customize the configuration (e.g., change models) before starting? (y/N): " customize_choice < /dev/tty
 if [[ "$customize_choice" == "y" || "$customize_choice" == "Y" ]]; then
     print_info "Extracting default 'morphik.toml' for you to edit..."
     docker run --rm ghcr.io/morphik-org/morphik-core:latest \
            cat /app/morphik.toml.default > morphik.toml
 
     print_info "The configuration has been saved to 'morphik.toml'. Please edit this file in another terminal window now."
-    read -p "Press [Enter] once you have finished editing..."
+    read -p "Press [Enter] once you have finished editing..." < /dev/tty
 
     print_info "Enabling custom configuration in '$COMPOSE_FILE'..."
     # Use sed to uncomment the volume mount lines for both services
