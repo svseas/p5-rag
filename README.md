@@ -32,7 +32,7 @@ The best part? Morphik has a [free tier](https://www.morphik.ai/pricing) and is 
 
 ## Table of Contents
 - [Getting Started with Morphik](#getting-started-with-morphik-recommended)
-- [Self-hosting the open-source version](#self-hosting-the-open-source-version)
+- [Self-hosting Morphik](#self-hosting-the-open-source-version)
 - [Using Morphik](#using-morphik)
 - [Contributing](#contributing)
 - [Open source vs paid](#License)
@@ -41,11 +41,10 @@ The best part? Morphik has a [free tier](https://www.morphik.ai/pricing) and is 
 
 The fastest and easiest way to get started with Morphik is by signing up for free at [Morphik](https://www.morphik.ai/signup). We have a generous free tier and transparent, compute-usage based pricing if you're looking to ingest a lot of data.
 
-## Self-hosting the open-source version
-
+## Self-hosting Morphik
 If you'd like to self-host Morphik, you can find the dedicated instruction [here](https://morphik.ai/docs/getting-started). We offer options for direct installation and installation via docker.
 
-**Important**: Due to limited resources, we cannot provide full support for open-source deployments. We have an installation guide, and a [Discord community](https://discord.gg/BwMtv3Zaju) to help, but we can't guarantee full support.
+**Important**: Due to limited resources, we cannot provide full support for self-hosted deployments. We have an installation guide, and a [Discord community](https://discord.gg/BwMtv3Zaju) to help, but we can't guarantee full support.
 
 ## Using Morphik
 
