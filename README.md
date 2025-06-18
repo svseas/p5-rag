@@ -35,7 +35,7 @@ The best part? Morphik has a [free tier](https://www.morphik.ai/pricing) and is 
 - [Self-hosting the open-source version](#self-hosting-the-open-source-version)
 - [Using Morphik](#using-morphik)
 - [Contributing](#contributing)
-- [Open source vs paid](#open-source-vs-paid)
+- [Open source vs paid](#License)
 
 ## Getting Started with Morphik (Recommended)
 
@@ -85,9 +85,17 @@ You're welcome to contribute to the project! We love:
 
 Currently, we're focused on improving speed, integrating with more tools, and finding the research papers that provide the most value to our users. If you have thoughts, let us know in the discord or in GitHub!
 
-## Open source vs paid
+## License
 
-Certain features - such as Morphik Console - are not available in the open-source version. Any feature in the `ee` namespace is not available in the open-source version and carries a different license. Any feature outside that is open source under the MIT expat license.
+Morphik Core is **source-available** under the [Business Source License 1.1](./LICENSE).
+
+- **Personal / Indie use**: free.
+- **Commercial production use**: free if your Morphik deployment generates < $2 000/month in gross revenue.  
+  Otherwise purchase a commercial key at <https://morphik.ai/pricing>.
+- **Future open source**: each code version automatically re-licenses to Apache 2.0 exactly four years after its first release.
+
+See the full licence text for details.
+
 
 ## Contributors
 
