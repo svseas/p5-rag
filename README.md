@@ -18,7 +18,7 @@
 
 > **Migration Required for Existing Installations**: If you installed Morphik before June 8, 2025, our most recent changes affect the way content is stored in the multivector chunks. Please run the `scripts/migrate_multivector_to_external_storage.py` script before launching Morphik.
 
-## Morphik is an open-source AI-native knowledge base.
+## Morphik is a AI-native toolset for visually rich documents and multimodal data
 
 [Morphik](https://morphik.ai) provides developers the tools to ingest, search (deep and shallow), transform, and manage unstructured and multimodal documents. Some of our features include:
 
