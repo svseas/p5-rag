@@ -1742,9 +1742,11 @@ export function PDFViewer({ apiBaseUrl, authToken, initialDocumentId }: PDFViewe
                                     <span className="ml-1 text-green-600 dark:text-green-400">✓</span>
                                   )}
                                 </div>
-                                {message.current_frame && message.metadata?.status !== "executing" && message.content !== "Executing..." && (
-                                  <span className="text-green-600 dark:text-green-400">🖼️</span>
-                                )}
+                                {message.current_frame &&
+                                  message.metadata?.status !== "executing" &&
+                                  message.content !== "Executing..." && (
+                                    <span className="text-green-600 dark:text-green-400">🖼️</span>
+                                  )}
                               </div>
                             </div>
                           </div>
