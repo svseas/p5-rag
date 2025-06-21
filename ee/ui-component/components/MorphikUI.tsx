@@ -9,6 +9,7 @@ import GraphSection from "@/components/GraphSection";
 import { ConnectorList } from "@/components/connectors/ConnectorList";
 import { PDFViewer } from "@/components/pdf/PDFViewer";
 import { PDFAPIService } from "@/components/pdf/PDFAPIService";
+import { SettingsSection } from "@/components/settings/SettingsSection";
 import { extractTokenFromUri, getApiBaseUrlFromUri } from "@/lib/utils";
 import { MorphikUIProps } from "./types";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,7 @@ const MorphikUI: React.FC<MorphikUIProps> = ({
   }, [connectionUri]);
 
   // Valid section types, now matching the updated MorphikUIProps
-  type SectionType = "documents" | "search" | "chat" | "graphs" | "connections" | "pdf";
+  type SectionType = "documents" | "search" | "chat" | "graphs" | "connections" | "pdf" | "settings";
 
   useEffect(() => {
     // Ensure initialSection from props is a valid SectionType before setting
@@ -103,8 +104,8 @@ const MorphikUI: React.FC<MorphikUIProps> = ({
 
   // Wrapper for section change to match expected type
   const handleSectionChange = (section: string) => {
-    if (["documents", "search", "chat", "graphs", "connections", "pdf"].includes(section)) {
-      // Added "connections" and "pdf"
+    if (["documents", "search", "chat", "graphs", "connections", "pdf", "settings"].includes(section)) {
+      // Added "connections", "pdf", and "settings"
       setActiveSection(section as SectionType); // Use SectionType here
     }
   };
@@ -193,6 +194,7 @@ const MorphikUI: React.FC<MorphikUIProps> = ({
               initialDocumentId={pdfViewerDocumentId}
             />
           )}
+          {activeSection === "settings" && <SettingsSection onBackClick={() => setActiveSection("chat")} />}
         </main>
       </div>
     </PDFAPIService>

@@ -20,6 +20,7 @@ import { Slider } from "@/components/ui/slider";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { AgentPreviewMessage, AgentUIMessage, DisplayObject, SourceObject, ToolCall } from "./AgentChatMessages";
 import { MessageSquare } from "lucide-react";
+import { ModelSelector2 } from "./ModelSelector2";
 
 interface ChatSectionProps {
   apiBaseUrl: string;
@@ -128,6 +129,9 @@ const ChatSection: React.FC<ChatSectionProps> = ({
   const [folders, setFolders] = useState<FolderSummary[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [documents, setDocuments] = useState<{ id: string; filename: string }[]>([]);
+
+  // Model selection state
+  const [selectedModel, setSelectedModel] = useState<string>("");
 
   // Agent mode toggle and state
   const [isAgentMode, setIsAgentMode] = useState(false);
@@ -450,6 +454,74 @@ const ChatSection: React.FC<ChatSectionProps> = ({
     return documents.filter(d => d !== "__none__");
   };
 
+  // Handle model selection change
+  const handleModelChange = (modelId: string) => {
+    setSelectedModel(modelId);
+
+    // Check if this is a custom model
+    if (modelId.startsWith("custom_")) {
+      const savedModels = localStorage.getItem("morphik_custom_models");
+      if (savedModels) {
+        try {
+          const customModels = JSON.parse(savedModels);
+          const customModel = customModels.find((m: any) => `custom_${m.id}` === modelId);
+          
+          if (customModel) {
+            // Use the custom model's config directly
+            safeUpdateOption("llm_config", customModel.config);
+            return;
+          }
+        } catch (err) {
+          console.error("Failed to parse custom models:", err);
+        }
+      }
+    }
+
+    // Get API keys from localStorage
+    const savedConfig = localStorage.getItem("morphik_api_keys");
+    if (savedConfig) {
+      try {
+        const config = JSON.parse(savedConfig);
+
+        // Build model_config based on selected model and saved API keys
+        const modelConfig: Record<string, unknown> = { model: modelId };
+
+        // Determine provider from model ID
+        if (modelId.startsWith("gpt")) {
+          if (config.openai?.apiKey) {
+            modelConfig.api_key = config.openai.apiKey;
+            if (config.openai.baseUrl) {
+              modelConfig.base_url = config.openai.baseUrl;
+            }
+          }
+        } else if (modelId.startsWith("claude")) {
+          if (config.anthropic?.apiKey) {
+            modelConfig.api_key = config.anthropic.apiKey;
+            if (config.anthropic.baseUrl) {
+              modelConfig.base_url = config.anthropic.baseUrl;
+            }
+          }
+        } else if (modelId.startsWith("gemini/")) {
+          if (config.google?.apiKey) {
+            modelConfig.api_key = config.google.apiKey;
+          }
+        } else if (modelId.startsWith("groq/")) {
+          if (config.groq?.apiKey) {
+            modelConfig.api_key = config.groq.apiKey;
+          }
+        } else if (modelId.startsWith("deepseek/")) {
+          if (config.deepseek?.apiKey) {
+            modelConfig.api_key = config.deepseek.apiKey;
+          }
+        }
+
+        safeUpdateOption("llm_config", modelConfig);
+      } catch (err) {
+        console.error("Failed to parse API keys:", err);
+      }
+    }
+  };
+
   return (
     <div className="relative flex h-full w-full overflow-hidden bg-background">
       {/* Sidebar */}
@@ -679,6 +751,22 @@ const ChatSection: React.FC<ChatSectionProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Model Selector - below input */}
+              {!isAgentMode && (
+                <div className="mt-2 flex items-center justify-between px-2">
+                  <ModelSelector2
+                    apiBaseUrl={apiBaseUrl}
+                    authToken={authToken}
+                    selectedModel={selectedModel}
+                    onModelChange={handleModelChange}
+                    onRequestApiKey={() => {
+                      // Navigate to settings page with API keys tab
+                      window.location.href = "?section=settings";
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Settings Panel */}
               {showSettings && !isAgentMode && !isReadonly && (
