@@ -126,8 +126,29 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     const loadModels = async () => {
       try {
         if (authToken) {
-          const customModels = await api.listCustomModels();
-          setModels(customModels);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.morphik.ai"}/models/custom`, {
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+            },
+          });
+
+          if (response.ok) {
+            const customModels = await response.json();
+            const transformedModels = customModels.map(
+              (m: { id: string; name: string; provider: string; config: { model?: string; model_name?: string } }) => ({
+                id: m.id,
+                name: m.name,
+                provider: m.provider,
+                model_name: m.config.model || m.config.model_name || "",
+                config: m.config,
+              })
+            );
+            setModels(transformedModels);
+            // Also update localStorage
+            localStorage.setItem("morphik_custom_models", JSON.stringify(transformedModels));
+          } else {
+            throw new Error("Failed to load models");
+          }
         } else {
           // Fall back to localStorage
           const savedModels = localStorage.getItem("morphik_custom_models");
@@ -154,7 +175,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     };
 
     loadModels();
-  }, [authToken, api]);
+  }, [authToken]);
 
   // Save models to backend and localStorage
   const saveModels = async (updatedModels: CustomModel[]) => {
@@ -184,15 +205,35 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
       const model_name = config.model || config.model_name || "";
 
       if (authToken) {
-        // Save to backend
-        const createdModel = await api.createCustomModel({
-          name: newModel.name,
-          provider: newModel.provider,
-          model_name,
-          config,
+        // Save to backend using the new /models endpoint
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.morphik.ai"}/models`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            name: newModel.name,
+            provider: newModel.provider,
+            config,
+          }),
         });
 
-        const updatedModels = [...models, createdModel];
+        if (!response.ok) {
+          throw new Error("Failed to save model");
+        }
+
+        const createdModel = await response.json();
+        const updatedModels = [
+          ...models,
+          {
+            id: createdModel.id,
+            name: createdModel.name,
+            provider: createdModel.provider,
+            model_name: config.model || config.model_name || "",
+            config: createdModel.config,
+          },
+        ];
         setModels(updatedModels);
         // Also save to localStorage for immediate availability in ModelSelector2
         localStorage.setItem("morphik_custom_models", JSON.stringify(updatedModels));
@@ -226,7 +267,16 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     try {
       if (authToken) {
         // Delete from backend
-        await api.deleteCustomModel(id);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.morphik.ai"}/models/${id}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to delete model");
+        }
       }
 
       // Update local state and localStorage

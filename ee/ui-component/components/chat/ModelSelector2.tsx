@@ -53,38 +53,50 @@ export function ModelSelector2({
         if (mergedConfig.groq?.apiKey) providers.add("groq");
         if (mergedConfig.deepseek?.apiKey) providers.add("deepseek");
 
-        // Load custom models
-        const customModelsList = await api.listCustomModels();
-        console.log("Loaded custom models from backend:", customModelsList);
+        // Load custom models from new endpoint
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.morphik.ai"}/models/custom`, {
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+            },
+          });
 
-        const transformedCustomModels = customModelsList.map(
-          (model: { id: string; name: string; provider: string }) => ({
-            id: `custom_${model.id}`,
-            name: model.name,
-            provider: model.provider,
-            description: `Custom ${model.provider} model`,
-          })
-        );
-        console.log("Transformed custom models:", transformedCustomModels);
-        setCustomModels(transformedCustomModels);
+          if (response.ok) {
+            const customModelsList = await response.json();
+            console.log("Loaded custom models from backend:", customModelsList);
 
-        // Add custom model providers
-        customModelsList.forEach((model: { provider: string; config: { api_key?: string } }) => {
-          // Check if the provider has an API key in the merged config
-          // or if the model config contains an api_key (not sanitized)
-          if (mergedConfig[model.provider]?.apiKey) {
-            providers.add(model.provider);
-          } else if (
-            model.config &&
-            typeof model.config === "object" &&
-            "api_key" in model.config &&
-            model.config.api_key &&
-            model.config.api_key !== "***"
-          ) {
-            // Model has its own API key
-            providers.add(model.provider);
+            const transformedCustomModels = customModelsList.map(
+              (model: { id: string; name: string; provider: string; config: Record<string, unknown> }) => ({
+                id: `custom_${model.id}`,
+                name: model.name,
+                provider: model.provider,
+                description: `Custom ${model.provider} model`,
+                config: model.config,
+              })
+            );
+            console.log("Transformed custom models:", transformedCustomModels);
+            setCustomModels(transformedCustomModels);
+
+            // Add custom model providers
+            customModelsList.forEach((model: { provider: string; config: { api_key?: string } }) => {
+              // Check if the provider has an API key in the merged config
+              // or if the model config contains an api_key
+              if (mergedConfig[model.provider]?.apiKey) {
+                providers.add(model.provider);
+              } else if (
+                model.config &&
+                typeof model.config === "object" &&
+                "api_key" in model.config &&
+                model.config.api_key
+              ) {
+                // Model has its own API key
+                providers.add(model.provider);
+              }
+            });
           }
-        });
+        } catch (err) {
+          console.error("Failed to load custom models from backend:", err);
+        }
       } catch (err) {
         console.error("Failed to load configurations:", err);
 
