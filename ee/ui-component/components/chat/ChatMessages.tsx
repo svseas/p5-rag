@@ -105,7 +105,7 @@ export function PreviewMessage({ message }: Pick<MessageProps, "message">) {
       <div className="mx-auto w-full max-w-4xl">
         {message.role === "user" ? (
           // User message - full width with grey background and thin black border
-          <div className="w-full rounded-lg border border-black/10 bg-gray-100 p-4 dark:border-white/10 dark:bg-gray-800">
+          <div className="w-full rounded-lg border border-black/10 bg-gray-100 p-4 dark:border-white/10 dark:bg-zinc-900">
             <div className="text-[15px] leading-relaxed">{message.content}</div>
           </div>
         ) : (

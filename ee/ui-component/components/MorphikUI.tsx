@@ -144,7 +144,6 @@ const MorphikUI: React.FC<MorphikUIProps> = ({
               apiBaseUrl={effectiveApiBaseUrl}
               authToken={authToken}
               initialFolder={initialFolder ?? undefined}
-              setSidebarCollapsed={setIsSidebarCollapsed}
               onDocumentUpload={onDocumentUpload}
               onDocumentDelete={onDocumentDelete}
               onDocumentClick={onDocumentClick}
