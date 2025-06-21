@@ -109,18 +109,18 @@ export interface ChatMessage {
 export interface ModelConfigResponse {
   id: string;
   provider: string;
-  config_data: Record<string, any>;
+  config_data: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
 export interface ModelConfigCreate {
   provider: string;
-  config_data: Record<string, any>;
+  config_data: Record<string, unknown>;
 }
 
 export interface ModelConfigUpdate {
-  config_data: Record<string, any>;
+  config_data: Record<string, unknown>;
 }
 
 export interface CustomModel {
@@ -128,12 +128,12 @@ export interface CustomModel {
   name: string;
   provider: string;
   model_name: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }
 
 export interface CustomModelCreate {
   name: string;
   provider: string;
   model_name: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }

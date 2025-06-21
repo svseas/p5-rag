@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Edit2, Check, X, Copy, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Copy, ExternalLink } from "lucide-react";
 import { showAlert } from "@/components/ui/alert-system";
 import {
   Dialog,
@@ -21,7 +21,7 @@ import { ModelConfigAPI } from "@/lib/modelConfigApi";
 import { CustomModel } from "@/components/types";
 
 interface ModelManagerProps {
-  apiKeys: Record<string, any>;
+  apiKeys: Record<string, { apiKey?: string; baseUrl?: string; [key: string]: unknown }>;
   authToken?: string | null;
 }
 
@@ -118,14 +118,12 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     provider: "",
     config: "",
   });
-  const [loading, setLoading] = useState(false);
 
-  const api = new ModelConfigAPI(authToken || null);
+  const api = useMemo(() => new ModelConfigAPI(authToken || null), [authToken]);
 
   // Load saved models from backend or localStorage
   useEffect(() => {
     const loadModels = async () => {
-      setLoading(true);
       try {
         if (authToken) {
           const customModels = await api.listCustomModels();
@@ -152,21 +150,19 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
             console.error("Failed to parse saved models:", parseErr);
           }
         }
-      } finally {
-        setLoading(false);
       }
     };
 
     loadModels();
-  }, [authToken]);
+  }, [authToken, api]);
 
   // Save models to backend and localStorage
   const saveModels = async (updatedModels: CustomModel[]) => {
     setModels(updatedModels);
-    
+
     // Always save to localStorage as fallback
     localStorage.setItem("morphik_custom_models", JSON.stringify(updatedModels));
-    
+
     // Note: Individual model operations (add/delete) will handle backend updates
   };
 
@@ -178,15 +174,15 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
 
     try {
       const config = JSON.parse(newModel.config);
-      
+
       // Auto-inject API key if available for the provider
       if (apiKeys[newModel.provider]?.apiKey && !config.api_key) {
         config.api_key = apiKeys[newModel.provider].apiKey;
       }
-      
+
       // Extract model_name from config
       const model_name = config.model || config.model_name || "";
-      
+
       if (authToken) {
         // Save to backend
         const createdModel = await api.createCustomModel({
@@ -195,7 +191,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
           model_name,
           config,
         });
-        
+
         setModels([...models, createdModel]);
       } else {
         // Save to localStorage only
@@ -206,31 +202,30 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
           model_name,
           config,
         };
-        
+
         saveModels([...models, model]);
       }
-      
+
       setNewModel({ name: "", provider: "", config: "" });
       setShowAddDialog(false);
       showAlert("Model added successfully", { type: "success" });
-    } catch (err: any) {
-      if (err.message?.includes("JSON")) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      if (errorMessage.includes("JSON")) {
         showAlert("Invalid JSON configuration", { type: "error" });
       } else {
-        showAlert(`Failed to add model: ${err.message}`, { type: "error" });
+        showAlert(`Failed to add model: ${errorMessage}`, { type: "error" });
       }
     }
   };
 
   const handleDeleteModel = (id: string) => {
-    saveModels(models.filter((m) => m.id !== id));
+    saveModels(models.filter(m => m.id !== id));
     showAlert("Model deleted", { type: "success" });
   };
 
   const handleUpdateModel = (id: string, updates: Partial<CustomModel>) => {
-    saveModels(
-      models.map((m) => (m.id === id ? { ...m, ...updates } : m))
-    );
+    saveModels(models.map(m => (m.id === id ? { ...m, ...updates } : m)));
     setEditingModel(null);
     showAlert("Model updated", { type: "success" });
   };
@@ -243,9 +238,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     });
   };
 
-  const availableProviders = Object.keys(apiKeys).filter(
-    (provider) => apiKeys[provider]?.apiKey
-  );
+  const availableProviders = Object.keys(apiKeys).filter(provider => apiKeys[provider]?.apiKey);
 
   return (
     <div className="space-y-6">
@@ -265,7 +258,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
       {models.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <p className="text-muted-foreground mb-4">No custom models configured</p>
+            <p className="mb-4 text-muted-foreground">No custom models configured</p>
             <Button onClick={() => setShowAddDialog(true)} variant="outline">
               <Plus className="mr-2 h-4 w-4" />
               Add Your First Model
@@ -274,7 +267,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {models.map((model) => (
+          {models.map(model => (
             <Card key={model.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -285,9 +278,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
                     {editingModel === model.id ? (
                       <Input
                         value={model.name}
-                        onChange={(e) =>
-                          handleUpdateModel(model.id, { name: e.target.value })
-                        }
+                        onChange={e => handleUpdateModel(model.id, { name: e.target.value })}
                         className="h-8 w-48"
                       />
                     ) : (
@@ -297,21 +288,13 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
                   <div className="flex items-center gap-2">
                     {editingModel === model.id ? (
                       <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditingModel(null)}
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => setEditingModel(null)}>
                           <X className="h-4 w-4" />
                         </Button>
                       </>
                     ) : (
                       <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditingModel(model.id)}
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => setEditingModel(model.id)}>
                           <Edit2 className="h-4 w-4" />
                         </Button>
                         <Button
@@ -332,26 +315,20 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
               </CardHeader>
               <CardContent>
                 <div className="rounded-lg bg-muted/50 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Configuration
-                    </span>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Configuration</span>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        navigator.clipboard.writeText(
-                          JSON.stringify(model.config, null, 2)
-                        );
+                        navigator.clipboard.writeText(JSON.stringify(model.config, null, 2));
                         showAlert("Configuration copied", { type: "success" });
                       }}
                     >
                       <Copy className="h-3 w-3" />
                     </Button>
                   </div>
-                  <pre className="text-xs overflow-x-auto">
-                    {JSON.stringify(model.config, null, 2)}
-                  </pre>
+                  <pre className="overflow-x-auto text-xs">{JSON.stringify(model.config, null, 2)}</pre>
                 </div>
               </CardContent>
             </Card>
@@ -364,9 +341,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Custom Model</DialogTitle>
-            <DialogDescription>
-              Configure a custom LiteLLM-compatible model with your API key
-            </DialogDescription>
+            <DialogDescription>Configure a custom LiteLLM-compatible model with your API key</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -376,7 +351,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
                 id="model-name"
                 placeholder="e.g., GPT-4 Turbo, Mixtral 8x7B"
                 value={newModel.name}
-                onChange={(e) => setNewModel({ ...newModel, name: e.target.value })}
+                onChange={e => setNewModel({ ...newModel, name: e.target.value })}
               />
             </div>
 
@@ -392,15 +367,11 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
                       No API keys configured - add them in API Keys tab
                     </SelectItem>
                   ) : (
-                    availableProviders.map((provider) => (
+                    availableProviders.map(provider => (
                       <SelectItem key={provider} value={provider}>
                         <div className="flex items-center gap-2">
-                          <span>
-                            {PROVIDER_INFO[provider as keyof typeof PROVIDER_INFO]?.icon || "🔧"}
-                          </span>
-                          <span>
-                            {PROVIDER_INFO[provider as keyof typeof PROVIDER_INFO]?.name || provider}
-                          </span>
+                          <span>{PROVIDER_INFO[provider as keyof typeof PROVIDER_INFO]?.icon || "🔧"}</span>
+                          <span>{PROVIDER_INFO[provider as keyof typeof PROVIDER_INFO]?.name || provider}</span>
                         </div>
                       </SelectItem>
                     ))
@@ -413,10 +384,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
                   size="sm"
                   className="mt-1 h-auto p-0"
                   onClick={() =>
-                    window.open(
-                      PROVIDER_INFO[newModel.provider as keyof typeof PROVIDER_INFO]?.docsUrl,
-                      "_blank"
-                    )
+                    window.open(PROVIDER_INFO[newModel.provider as keyof typeof PROVIDER_INFO]?.docsUrl, "_blank")
                   }
                 >
                   View LiteLLM docs for {newModel.provider}
@@ -426,14 +394,12 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
             </div>
 
             <div>
-              <Label htmlFor="config">
-                Model Configuration (LiteLLM format)
-              </Label>
+              <Label htmlFor="config">Model Configuration (LiteLLM format)</Label>
               <Textarea
                 id="config"
                 placeholder='{"model": "gpt-4", "temperature": 0.7}'
                 value={newModel.config}
-                onChange={(e) => setNewModel({ ...newModel, config: e.target.value })}
+                onChange={e => setNewModel({ ...newModel, config: e.target.value })}
                 rows={10}
                 className="font-mono text-sm"
               />

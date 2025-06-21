@@ -62,7 +62,7 @@ export function ModelSelector({
     };
 
     fetchModels();
-  }, [apiBaseUrl, authToken]);
+  }, [apiBaseUrl, authToken, currentModel, onModelChange]);
 
   const selectedModelData = models.find(m => m.id === currentModel);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,38 +74,36 @@ export function ModelSettings({ open, onOpenChange, authToken }: ModelSettingsPr
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("openai");
-  const [loading, setLoading] = useState(false);
   const [backendConfigs, setBackendConfigs] = useState<ModelConfigResponse[]>([]);
 
-  const api = new ModelConfigAPI(authToken || null);
+  const api = useMemo(() => new ModelConfigAPI(authToken || null), [authToken]);
 
   // Load saved configuration from backend or localStorage
   useEffect(() => {
     const loadConfig = async () => {
-      setLoading(true);
       try {
         if (authToken) {
           // Try to load from backend first
           const configs = await api.listConfigs();
           setBackendConfigs(configs);
-          
+
           // Convert backend configs to APIKeyConfig format
           const configMap: APIKeyConfig = {};
           for (const backendConfig of configs) {
             configMap[backendConfig.provider] = backendConfig.config_data;
           }
-          
+
           // If no backend configs, try to sync from localStorage
           if (configs.length === 0) {
             await api.syncFromLocalStorage();
             const updatedConfigs = await api.listConfigs();
             setBackendConfigs(updatedConfigs);
-            
+
             for (const backendConfig of updatedConfigs) {
               configMap[backendConfig.provider] = backendConfig.config_data;
             }
           }
-          
+
           setConfig(configMap);
         } else {
           // No auth token, fall back to localStorage
@@ -129,15 +127,13 @@ export function ModelSettings({ open, onOpenChange, authToken }: ModelSettingsPr
             console.error("Failed to parse saved API keys:", parseErr);
           }
         }
-      } finally {
-        setLoading(false);
       }
     };
 
     if (open) {
       loadConfig();
     }
-  }, [open, authToken]);
+  }, [open, authToken, api]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -146,7 +142,7 @@ export function ModelSettings({ open, onOpenChange, authToken }: ModelSettingsPr
         // Save to backend
         for (const [provider, providerConfig] of Object.entries(config)) {
           const existingConfig = backendConfigs.find(c => c.provider === provider);
-          
+
           if (existingConfig) {
             // Update existing config
             await api.updateConfig(existingConfig.id, { config_data: providerConfig });
@@ -158,7 +154,7 @@ export function ModelSettings({ open, onOpenChange, authToken }: ModelSettingsPr
             });
           }
         }
-        
+
         // Delete configs that were removed
         for (const backendConfig of backendConfigs) {
           if (!config[backendConfig.provider]) {
@@ -166,10 +162,10 @@ export function ModelSettings({ open, onOpenChange, authToken }: ModelSettingsPr
           }
         }
       }
-      
+
       // Always save to localStorage as fallback
       localStorage.setItem("morphik_api_keys", JSON.stringify(config));
-      
+
       showAlert("API keys saved successfully", {
         type: "success",
         duration: 3000,

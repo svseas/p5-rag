@@ -41,37 +41,39 @@ export function ModelSelector2({
     const loadAvailableProviders = async () => {
       const providers = new Set<string>();
       const api = new ModelConfigAPI(authToken);
-      
+
       try {
         // Get config from backend and localStorage
         const mergedConfig = await api.getMergedConfig();
-        
+
         // Check which providers have API keys
         if (mergedConfig.openai?.apiKey) providers.add("openai");
         if (mergedConfig.anthropic?.apiKey) providers.add("anthropic");
         if (mergedConfig.google?.apiKey) providers.add("google");
         if (mergedConfig.groq?.apiKey) providers.add("groq");
         if (mergedConfig.deepseek?.apiKey) providers.add("deepseek");
-        
+
         // Load custom models
         const customModelsList = await api.listCustomModels();
-        const transformedCustomModels = customModelsList.map((model: any) => ({
-          id: `custom_${model.id}`,
-          name: model.name,
-          provider: model.provider,
-          description: `Custom ${model.provider} model`,
-        }));
+        const transformedCustomModels = customModelsList.map(
+          (model: { id: string; name: string; provider: string }) => ({
+            id: `custom_${model.id}`,
+            name: model.name,
+            provider: model.provider,
+            description: `Custom ${model.provider} model`,
+          })
+        );
         setCustomModels(transformedCustomModels);
-        
+
         // Add custom model providers
-        customModelsList.forEach((model: any) => {
+        customModelsList.forEach((model: { provider: string; config: { api_key?: string } }) => {
           if (mergedConfig[model.provider]?.apiKey || model.config.api_key) {
             providers.add(model.provider);
           }
         });
       } catch (err) {
         console.error("Failed to load configurations:", err);
-        
+
         // Fallback to localStorage
         const savedConfig = localStorage.getItem("morphik_api_keys");
         if (savedConfig) {
@@ -87,23 +89,25 @@ export function ModelSelector2({
             console.error("Failed to parse API keys:", parseErr);
           }
         }
-        
+
         // Load custom models from localStorage
         const savedModels = localStorage.getItem("morphik_custom_models");
         if (savedModels) {
           try {
             const parsedModels = JSON.parse(savedModels);
-            const transformedCustomModels = parsedModels.map((model: any) => ({
-              id: `custom_${model.id}`,
-              name: model.name,
-              provider: model.provider,
-              description: `Custom ${model.provider} model`,
-            }));
+            const transformedCustomModels = parsedModels.map(
+              (model: { id: string; name: string; provider: string }) => ({
+                id: `custom_${model.id}`,
+                name: model.name,
+                provider: model.provider,
+                description: `Custom ${model.provider} model`,
+              })
+            );
             setCustomModels(transformedCustomModels);
-            
+
             // Add custom model providers to available providers
             const config = JSON.parse(localStorage.getItem("morphik_api_keys") || "{}");
-            parsedModels.forEach((model: any) => {
+            parsedModels.forEach((model: { provider: string; config: { api_key?: string } }) => {
               if (config[model.provider]?.apiKey || model.config.api_key) {
                 providers.add(model.provider);
               }
@@ -113,15 +117,15 @@ export function ModelSelector2({
           }
         }
       }
-      
+
       // Check for OpenAI key in environment (from .env file)
       if (process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
         providers.add("openai");
       }
-      
+
       // Always add configured provider since it uses server-side keys
       providers.add("configured");
-      
+
       setAvailableProviders(providers);
     };
 
@@ -138,15 +142,17 @@ export function ModelSelector2({
         });
         if (response.ok) {
           const data = await response.json();
-          
+
           // Transform the chat_models to our expected format
-          const transformedModels = (data.chat_models || []).map((model: any) => ({
-            id: model.config.model_name || model.model,
-            name: model.id.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-            provider: model.provider,
-            description: `Model: ${model.model}`
-          }));
-          
+          const transformedModels = (data.chat_models || []).map(
+            (model: { config: { model_name?: string }; model: string; id: string; provider: string }) => ({
+              id: model.config.model_name || model.model,
+              name: model.id.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()),
+              provider: model.provider,
+              description: `Model: ${model.model}`,
+            })
+          );
+
           // Combine server models with custom models
           const allModels = [...transformedModels, ...customModels];
           setModels(allModels);
@@ -172,7 +178,7 @@ export function ModelSelector2({
     };
 
     fetchModels();
-  }, [apiBaseUrl, authToken, availableProviders, customModels]);
+  }, [apiBaseUrl, authToken, availableProviders, customModels, currentModel, onModelChange]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -189,7 +195,7 @@ export function ModelSelector2({
   const selectedModelData = models.find(m => m.id === currentModel);
   const isModelAvailable = (model: Model) => {
     // Custom models are available if they have an API key in their config or in saved API keys
-    if (model.id.startsWith('custom_')) {
+    if (model.id.startsWith("custom_")) {
       return availableProviders.has(model.provider);
     }
     return availableProviders.has(model.provider) || model.provider === "configured";

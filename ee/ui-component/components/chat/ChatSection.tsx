@@ -464,8 +464,8 @@ const ChatSection: React.FC<ChatSectionProps> = ({
       if (savedModels) {
         try {
           const customModels = JSON.parse(savedModels);
-          const customModel = customModels.find((m: any) => `custom_${m.id}` === modelId);
-          
+          const customModel = customModels.find((m: { id: string }) => `custom_${m.id}` === modelId);
+
           if (customModel) {
             // Use the custom model's config directly
             safeUpdateOption("llm_config", customModel.config);

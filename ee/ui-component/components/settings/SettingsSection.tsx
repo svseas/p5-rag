@@ -279,9 +279,7 @@ export function SettingsSection({ onBackClick, initialTab = "api-keys" }: Settin
               </>
             )}
 
-            {activeTab === "models" && (
-              <ModelManager apiKeys={config} />
-            )}
+            {activeTab === "models" && <ModelManager apiKeys={config} />}
           </div>
         </ScrollArea>
       </div>

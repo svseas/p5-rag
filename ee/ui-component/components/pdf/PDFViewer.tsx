@@ -587,27 +587,24 @@ export function PDFViewer({ apiBaseUrl, authToken, initialDocumentId }: PDFViewe
   );
 
   // Handle PDF load error
-  const onDocumentLoadError = useCallback(
-    (error: Error) => {
-      console.error("Error loading PDF:", error);
-      console.error("PDF.js worker src:", pdfjs.GlobalWorkerOptions.workerSrc);
-      console.error("PDF file URL:", pdfState.pdfDataUrl);
-      console.error("PDF file object:", pdfState.file);
-      console.error("PDF state:", pdfState);
+  const onDocumentLoadError = useCallback((error: Error) => {
+    console.error("Error loading PDF:", error);
+    console.error("PDF.js worker src:", pdfjs.GlobalWorkerOptions.workerSrc);
+    console.error("PDF file URL:", pdfState.pdfDataUrl);
+    console.error("PDF file object:", pdfState.file);
+    console.error("PDF state:", pdfState);
 
-      // Additional debugging for common PDF.js issues
-      if (error.message.includes("Invalid PDF")) {
-        console.error("PDF appears to be corrupted or invalid");
-      } else if (error.message.includes("worker")) {
-        console.error("PDF.js worker issue - check network connectivity");
-      } else if (error.message.includes("fetch")) {
-        console.error("Network issue loading PDF - check CORS and URL accessibility");
-      }
+    // Additional debugging for common PDF.js issues
+    if (error.message.includes("Invalid PDF")) {
+      console.error("PDF appears to be corrupted or invalid");
+    } else if (error.message.includes("worker")) {
+      console.error("PDF.js worker issue - check network connectivity");
+    } else if (error.message.includes("fetch")) {
+      console.error("Network issue loading PDF - check CORS and URL accessibility");
+    }
 
-      setIsLoading(false);
-    },
-    [pdfState.pdfDataUrl, pdfState.file, pdfState]
-  );
+    setIsLoading(false);
+  }, [pdfState]);
 
   // PDF Controls
   const goToPage = useCallback(
@@ -1420,6 +1417,7 @@ export function PDFViewer({ apiBaseUrl, authToken, initialDocumentId }: PDFViewe
                   <div>
                     <h4 className="mb-2 font-medium">Visual Result:</h4>
                     <div className="overflow-hidden rounded-lg border">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={selectedToolMessage.current_frame}
                         alt="Tool result visualization"

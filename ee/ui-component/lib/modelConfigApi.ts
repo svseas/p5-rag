@@ -1,4 +1,10 @@
-import { ModelConfigResponse, ModelConfigCreate, ModelConfigUpdate, CustomModel, CustomModelCreate } from "@/components/types";
+import {
+  ModelConfigResponse,
+  ModelConfigCreate,
+  ModelConfigUpdate,
+  CustomModel,
+  CustomModelCreate,
+} from "@/components/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -137,7 +143,7 @@ export class ModelConfigAPI {
       const savedApiKeys = localStorage.getItem("morphik_api_keys");
       if (savedApiKeys) {
         const apiKeys: APIKeyConfig = JSON.parse(savedApiKeys);
-        
+
         // Create configs for each provider that has an API key
         for (const [provider, config] of Object.entries(apiKeys)) {
           if (config.apiKey && !existingProviders.has(provider)) {
@@ -155,7 +161,7 @@ export class ModelConfigAPI {
         const models = JSON.parse(savedModels);
         const existingCustomModels = await this.listCustomModels();
         const existingModelNames = new Set(existingCustomModels.map(m => m.name));
-        
+
         for (const model of models) {
           if (!existingModelNames.has(model.name)) {
             await this.createCustomModel({
@@ -175,7 +181,7 @@ export class ModelConfigAPI {
   // Helper method to get merged config (backend + localStorage fallback)
   async getMergedConfig(): Promise<APIKeyConfig> {
     const config: APIKeyConfig = {};
-    
+
     try {
       // Get configs from backend
       const backendConfigs = await this.listConfigs();
@@ -185,7 +191,7 @@ export class ModelConfigAPI {
     } catch (error) {
       console.error("Failed to get backend configs:", error);
     }
-    
+
     // Merge with localStorage (as fallback)
     const savedApiKeys = localStorage.getItem("morphik_api_keys");
     if (savedApiKeys) {
@@ -196,7 +202,7 @@ export class ModelConfigAPI {
         }
       }
     }
-    
+
     return config;
   }
 }
