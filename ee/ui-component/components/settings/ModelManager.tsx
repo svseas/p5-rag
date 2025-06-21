@@ -192,7 +192,10 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
           config,
         });
 
-        setModels([...models, createdModel]);
+        const updatedModels = [...models, createdModel];
+        setModels(updatedModels);
+        // Also save to localStorage for immediate availability in ModelSelector2
+        localStorage.setItem("morphik_custom_models", JSON.stringify(updatedModels));
       } else {
         // Save to localStorage only
         const model: CustomModel = {
@@ -219,15 +222,52 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     }
   };
 
-  const handleDeleteModel = (id: string) => {
-    saveModels(models.filter(m => m.id !== id));
-    showAlert("Model deleted", { type: "success" });
+  const handleDeleteModel = async (id: string) => {
+    try {
+      if (authToken) {
+        // Delete from backend
+        await api.deleteCustomModel(id);
+      }
+
+      // Update local state and localStorage
+      const updatedModels = models.filter(m => m.id !== id);
+      setModels(updatedModels);
+      localStorage.setItem("morphik_custom_models", JSON.stringify(updatedModels));
+
+      showAlert("Model deleted", { type: "success" });
+    } catch (err) {
+      console.error("Failed to delete model:", err);
+      showAlert("Failed to delete model", { type: "error" });
+    }
   };
 
-  const handleUpdateModel = (id: string, updates: Partial<CustomModel>) => {
-    saveModels(models.map(m => (m.id === id ? { ...m, ...updates } : m)));
-    setEditingModel(null);
-    showAlert("Model updated", { type: "success" });
+  const handleUpdateModel = async (id: string, updates: Partial<CustomModel>) => {
+    try {
+      const updatedModels = models.map(m => (m.id === id ? { ...m, ...updates } : m));
+
+      if (authToken) {
+        // Update in backend
+        const model = updatedModels.find(m => m.id === id);
+        if (model) {
+          await api.updateCustomModel(id, {
+            name: model.name,
+            provider: model.provider,
+            model_name: model.model_name,
+            config: model.config,
+          });
+        }
+      }
+
+      // Update local state and localStorage
+      setModels(updatedModels);
+      localStorage.setItem("morphik_custom_models", JSON.stringify(updatedModels));
+
+      setEditingModel(null);
+      showAlert("Model updated", { type: "success" });
+    } catch (err) {
+      console.error("Failed to update model:", err);
+      showAlert("Failed to update model", { type: "error" });
+    }
   };
 
   const handleProviderChange = (provider: string) => {

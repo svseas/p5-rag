@@ -132,6 +132,33 @@ export class ModelConfigAPI {
     return response.json();
   }
 
+  // Update a custom model
+  async updateCustomModel(modelId: string, model: CustomModelCreate): Promise<CustomModel> {
+    const response = await fetch(`${API_BASE_URL}/model-config/custom-models/${modelId}`, {
+      method: "PUT",
+      headers: this.getHeaders(),
+      body: JSON.stringify(model),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update custom model: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  // Delete a custom model
+  async deleteCustomModel(modelId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/model-config/custom-models/${modelId}`, {
+      method: "DELETE",
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to delete custom model: ${response.statusText}`);
+    }
+  }
+
   // Helper method to sync localStorage data to backend
   async syncFromLocalStorage(): Promise<void> {
     try {
