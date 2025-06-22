@@ -698,6 +698,8 @@ const DocumentList: React.FC<DocumentListProps> = React.memo(function DocumentLi
                       <div className="h-2 w-2 rounded-full bg-green-500" />
                     ) : doc.system_metadata?.status === "failed" ? (
                       <div className="h-2 w-2 rounded-full bg-red-500" />
+                    ) : doc.system_metadata?.status === "uploading" ? (
+                      <div className="h-2 w-2 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
                     ) : (
                       <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
                     )}
@@ -706,7 +708,9 @@ const DocumentList: React.FC<DocumentListProps> = React.memo(function DocumentLi
                         ? "Completed"
                         : doc.system_metadata?.status === "failed"
                           ? "Failed"
-                          : "Processing"}
+                          : doc.system_metadata?.status === "uploading"
+                            ? "Uploading"
+                            : "Processing"}
                     </div>
                   </div>
                   <span className="truncate font-medium">{doc.filename || "N/A"}</span>
