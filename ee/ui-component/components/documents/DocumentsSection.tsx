@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+// import { useDebounce } from "@/lib/hooks/useDebounce"; // Commented for future use
 import { Upload } from "lucide-react";
 import { showAlert, removeAlert } from "@/components/ui/alert-system";
 import DocumentList from "./DocumentList";
@@ -469,65 +470,71 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
   // }, [selectedFolder, setSidebarCollapsed]);
 
   // Fetch a specific document by ID
-  const fetchDocument = async (documentId: string) => {
-    try {
-      const url = `${effectiveApiUrl}/documents/${documentId}`;
-      console.log("DocumentsSection: Fetching document detail from:", url);
+  const fetchDocument = useCallback(
+    async (documentId: string) => {
+      try {
+        const url = `${effectiveApiUrl}/documents/${documentId}`;
+        console.log("DocumentsSection: Fetching document detail from:", url);
 
-      // Use non-blocking fetch to avoid locking the UI
-      fetch(url, {
-        method: "GET",
-        headers: {
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-      })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`Failed to fetch document: ${response.statusText}`);
-          }
-          return response.json();
+        // Use non-blocking fetch to avoid locking the UI
+        fetch(url, {
+          method: "GET",
+          headers: {
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
         })
-        .then(data => {
-          console.log(`Fetched document details for ID: ${documentId}`);
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`Failed to fetch document: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log(`Fetched document details for ID: ${documentId}`);
 
-          // Ensure document has a valid status in system_metadata
-          if (!data.system_metadata) {
-            data.system_metadata = {};
-          }
+            // Ensure document has a valid status in system_metadata
+            if (!data.system_metadata) {
+              data.system_metadata = {};
+            }
 
-          // If status is missing and we have a newly uploaded document, it should be "processing"
-          if (!data.system_metadata.status && data.system_metadata.folder_name) {
-            data.system_metadata.status = "processing";
-          }
+            // If status is missing and we have a newly uploaded document, it should be "processing"
+            if (!data.system_metadata.status && data.system_metadata.folder_name) {
+              data.system_metadata.status = "processing";
+            }
 
-          setSelectedDocument(data);
-        })
-        .catch(err => {
-          const errorMsg = err instanceof Error ? err.message : "An unknown error occurred";
-          console.error(`Error fetching document details: ${errorMsg}`);
-          showAlert(`Error fetching document: ${errorMsg}`, {
-            type: "error",
-            duration: 5000,
+            setSelectedDocument(data);
+          })
+          .catch(err => {
+            const errorMsg = err instanceof Error ? err.message : "An unknown error occurred";
+            console.error(`Error fetching document details: ${errorMsg}`);
+            showAlert(`Error fetching document: ${errorMsg}`, {
+              type: "error",
+              duration: 5000,
+            });
           });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "An unknown error occurred";
+        console.error(`Error in fetchDocument: ${errorMsg}`);
+        showAlert(`Error: ${errorMsg}`, {
+          type: "error",
+          duration: 5000,
         });
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "An unknown error occurred";
-      console.error(`Error in fetchDocument: ${errorMsg}`);
-      showAlert(`Error: ${errorMsg}`, {
-        type: "error",
-        duration: 5000,
-      });
-    }
-  };
+      }
+    },
+    [effectiveApiUrl, authToken]
+  );
 
   // Handle document click
-  const handleDocumentClick = (document: Document) => {
-    // Invoke callback prop before fetching
-    const docName = document.filename || document.external_id; // Use filename, fallback to ID
-    console.log(`handleDocumentClick: Calling onDocumentClick with '${docName}'`);
-    onDocumentClick?.(docName);
-    fetchDocument(document.external_id);
-  };
+  const handleDocumentClick = useCallback(
+    (document: Document) => {
+      // Invoke callback prop before fetching
+      const docName = document.filename || document.external_id; // Use filename, fallback to ID
+      console.log(`handleDocumentClick: Calling onDocumentClick with '${docName}'`);
+      onDocumentClick?.(docName);
+      fetchDocument(document.external_id);
+    },
+    [onDocumentClick, fetchDocument]
+  );
 
   // Helper function for document deletion API call
   const deleteDocumentApi = async (documentId: string) => {
@@ -544,67 +551,70 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
   };
 
   // Handle single document deletion
-  const handleDeleteDocument = async (documentId: string) => {
+  const handleDeleteDocument = useCallback(async (documentId: string) => {
     setItemToDelete(documentId);
     setItemsToDeleteCount(0); // Ensure this is 0 for single delete scenario
     setShowDeleteModal(true);
-  };
+  }, []);
 
   // Handle document download
-  const handleDownloadDocument = async (documentId: string) => {
-    try {
-      // Get the download URL for this document
-      const downloadUrlEndpoint = `${effectiveApiUrl}/documents/${documentId}/download_url`;
-      console.log("Fetching download URL from:", downloadUrlEndpoint);
+  const handleDownloadDocument = useCallback(
+    async (documentId: string) => {
+      try {
+        // Get the download URL for this document
+        const downloadUrlEndpoint = `${effectiveApiUrl}/documents/${documentId}/download_url`;
+        console.log("Fetching download URL from:", downloadUrlEndpoint);
 
-      const downloadUrlResponse = await fetch(downloadUrlEndpoint, {
-        headers: {
-          ...(authToken && { Authorization: `Bearer ${authToken}` }),
-        },
-      });
+        const downloadUrlResponse = await fetch(downloadUrlEndpoint, {
+          headers: {
+            ...(authToken && { Authorization: `Bearer ${authToken}` }),
+          },
+        });
 
-      if (!downloadUrlResponse.ok) {
-        console.error("Download URL request failed:", downloadUrlResponse.status, downloadUrlResponse.statusText);
-        throw new Error("Failed to get download URL");
+        if (!downloadUrlResponse.ok) {
+          console.error("Download URL request failed:", downloadUrlResponse.status, downloadUrlResponse.statusText);
+          throw new Error("Failed to get download URL");
+        }
+
+        const downloadData = await downloadUrlResponse.json();
+        console.log("Download URL response:", downloadData);
+
+        let downloadUrl = downloadData.download_url;
+
+        // Check if it's a local file URL (file://) which browsers can't access
+        if (downloadUrl.startsWith("file://")) {
+          console.log("Detected file:// URL, switching to direct file endpoint");
+          // Use our direct file endpoint instead for local storage
+          downloadUrl = `${effectiveApiUrl}/documents/${documentId}/file`;
+        }
+
+        console.log("Final download URL:", downloadUrl);
+
+        // Create a temporary link to trigger download
+        const link = window.document.createElement("a");
+        link.href = downloadUrl;
+
+        // Get the document name for the download
+        const docToDownload = documents.find(doc => doc.external_id === documentId);
+        if (docToDownload?.filename) {
+          link.download = docToDownload.filename;
+        }
+
+        window.document.body.appendChild(link);
+        link.click();
+        window.document.body.removeChild(link);
+
+        console.log("Download initiated successfully");
+      } catch (error) {
+        console.error("Error downloading document:", error);
+        showAlert("Error downloading document. Please try again.", {
+          type: "error",
+          duration: 3000,
+        });
       }
-
-      const downloadData = await downloadUrlResponse.json();
-      console.log("Download URL response:", downloadData);
-
-      let downloadUrl = downloadData.download_url;
-
-      // Check if it's a local file URL (file://) which browsers can't access
-      if (downloadUrl.startsWith("file://")) {
-        console.log("Detected file:// URL, switching to direct file endpoint");
-        // Use our direct file endpoint instead for local storage
-        downloadUrl = `${effectiveApiUrl}/documents/${documentId}/file`;
-      }
-
-      console.log("Final download URL:", downloadUrl);
-
-      // Create a temporary link to trigger download
-      const link = window.document.createElement("a");
-      link.href = downloadUrl;
-
-      // Get the document name for the download
-      const docToDownload = documents.find(doc => doc.external_id === documentId);
-      if (docToDownload?.filename) {
-        link.download = docToDownload.filename;
-      }
-
-      window.document.body.appendChild(link);
-      link.click();
-      window.document.body.removeChild(link);
-
-      console.log("Download initiated successfully");
-    } catch (error) {
-      console.error("Error downloading document:", error);
-      showAlert("Error downloading document. Please try again.", {
-        type: "error",
-        duration: 3000,
-      });
-    }
-  };
+    },
+    [effectiveApiUrl, authToken, documents]
+  );
 
   const confirmDeleteSingleDocument = async () => {
     if (!itemToDelete) return;
@@ -736,7 +746,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
   };
 
   // Handle checkbox change (wrapper function for use with shadcn checkbox)
-  const handleCheckboxChange = (checked: boolean | "indeterminate", docId: string) => {
+  const handleCheckboxChange = useCallback((checked: boolean | "indeterminate", docId: string) => {
     setSelectedDocuments(prev => {
       if (checked === true && !prev.includes(docId)) {
         return [...prev, docId];
@@ -745,14 +755,14 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
       }
       return prev;
     });
-  };
+  }, []);
 
   // Helper function to get "indeterminate" state for select all checkbox
-  const getSelectAllState = () => {
+  const getSelectAllState = useCallback(() => {
     if (selectedDocuments.length === 0) return false;
     if (selectedDocuments.length === documents.length) return true;
     return "indeterminate";
-  };
+  }, [selectedDocuments.length, documents.length]);
 
   // Handle file upload
   const handleFileUpload = async (file: File | null) => {
@@ -1174,7 +1184,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
   };
 
   // Function to trigger refresh
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     // Invoke callback
     onRefresh?.();
 
@@ -1204,7 +1214,10 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
 
     // Execute the fresh fetch
     performFreshFetch();
-  };
+  }, [onRefresh, fetchFolders]);
+
+  // Debounced version of refresh for rapid refresh calls (kept for future use)
+  // const handleDebouncedRefresh = useDebounce(handleRefresh, 500);
 
   // Wrapper for setSelectedFolder to include callback invocation
   const handleFolderSelect = useCallback(
