@@ -100,7 +100,7 @@ const generateTempId = () => `temp-${Date.now()}-${Math.random().toString(36).su
 const DocumentsSection: React.FC<DocumentsSectionProps> = ({
   apiBaseUrl,
   authToken,
-  initialFolder = null,
+  initialFolder = "all",
   // Destructure new props
   onDocumentUpload,
   onDocumentDelete,
@@ -679,8 +679,10 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
             }
           };
 
-          // Execute the refresh
-          refreshAfterUpload();
+          // Execute the refresh with a small delay to ensure backend has committed the document
+          setTimeout(() => {
+            refreshAfterUpload();
+          }, 1000); // 1 second delay to ensure document is fully committed
 
           // Show success message
           showAlert(`File uploaded successfully!`, {
@@ -848,8 +850,10 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
             }
           };
 
-          // Execute the refresh
-          refreshAfterUpload();
+          // Execute the refresh with a small delay to ensure backend has committed the documents
+          setTimeout(() => {
+            refreshAfterUpload();
+          }, 1000); // 1 second delay to ensure documents are fully committed
 
           // If there are errors, show them in the error alert
           if (result.errors && result.errors.length > 0) {
@@ -1006,8 +1010,10 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
             }
           };
 
-          // Execute the refresh
-          refreshAfterUpload();
+          // Execute the refresh with a small delay to ensure backend has committed the document
+          setTimeout(() => {
+            refreshAfterUpload();
+          }, 1000); // 1 second delay to ensure document is fully committed
 
           // Show success message
           showAlert(`Text document uploaded successfully!`, {

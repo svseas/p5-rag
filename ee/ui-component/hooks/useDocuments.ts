@@ -57,7 +57,7 @@ export function useDocuments({
         return;
       }
 
-      if (!selectedFolder || folders.length === 0) {
+      if (!selectedFolder) {
         return;
       }
 
