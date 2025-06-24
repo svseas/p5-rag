@@ -369,6 +369,7 @@ class Folder:
         additional_folders: Optional[List[str]] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         chat_id: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """
         Generate completion using relevant chunks as context within this folder.
@@ -408,6 +409,7 @@ class Folder:
             None,  # end_user_id not supported at this level
             chat_id,
             schema,
+            llm_config,
         )
 
         # Add schema to payload if provided
@@ -952,6 +954,7 @@ class UserScope:
         additional_folders: Optional[List[str]] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         chat_id: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """
         Generate completion using relevant chunks as context as this end user.
@@ -991,6 +994,7 @@ class UserScope:
             self._end_user_id,
             chat_id,
             schema,
+            llm_config,
         )
 
         # Add schema to payload if provided
@@ -1699,6 +1703,7 @@ class Morphik:
         folder_name: Optional[Union[str, List[str]]] = None,
         chat_id: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """
         Generate completion using relevant chunks as context.
@@ -1719,6 +1724,7 @@ class Morphik:
                 Either a QueryPromptOverrides object or a dictionary with the same structure
             folder_name: Optional folder name to further scope operations
             schema: Optional schema for structured output, can be a Pydantic model or a JSON schema dict
+            llm_config: Optional LiteLLM-compatible model configuration (e.g., model name, API key, base URL)
         Returns:
             CompletionResponse
 
@@ -1806,6 +1812,7 @@ class Morphik:
             None,  # end_user_id not supported at this level
             chat_id,
             schema,
+            llm_config,
         )
 
         # Add schema to payload if provided

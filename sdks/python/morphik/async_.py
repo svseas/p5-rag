@@ -356,6 +356,7 @@ class AsyncFolder:
         additional_folders: Optional[List[str]] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         chat_id: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """
         Generate completion using relevant chunks as context within this folder.
@@ -395,6 +396,7 @@ class AsyncFolder:
             None,
             chat_id,
             schema,
+            llm_config,
         )
 
         # Add schema to payload if provided
@@ -892,6 +894,7 @@ class AsyncUserScope:
         additional_folders: Optional[List[str]] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
         chat_id: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """
         Generate completion using relevant chunks as context, scoped to the end user.
@@ -931,6 +934,7 @@ class AsyncUserScope:
             self._end_user_id,
             chat_id,
             schema,
+            llm_config,
         )
 
         # Add schema to payload if provided
@@ -1556,6 +1560,7 @@ class AsyncMorphik:
         folder_name: Optional[Union[str, List[str]]] = None,
         chat_id: Optional[str] = None,
         schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResponse:
         """
         Generate completion using relevant chunks as context.
@@ -1575,6 +1580,7 @@ class AsyncMorphik:
             prompt_overrides: Optional customizations for entity extraction, resolution, and query prompts
                 Either a QueryPromptOverrides object or a dictionary with the same structure
             schema: Optional schema for structured output, can be a Pydantic model or a JSON schema dict
+            llm_config: Optional LiteLLM-compatible model configuration (e.g., model name, API key, base URL)
         Returns:
             CompletionResponse
 
@@ -1662,6 +1668,7 @@ class AsyncMorphik:
             None,
             chat_id,
             schema,
+            llm_config,
         )
 
         # Add schema to payload if provided
