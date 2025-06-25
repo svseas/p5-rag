@@ -2045,6 +2045,115 @@ async def update_graph(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/graph/{name}/status", response_model=Dict[str, Any])
+@telemetry.track(operation_type="get_graph_status")
+async def get_graph_status(
+    name: str,
+    auth: AuthContext = Depends(verify_token),
+    folder_name: Optional[Union[str, List[str]]] = None,
+    end_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Lightweight endpoint to check graph status with automatic status synchronization.
+
+    This endpoint:
+    1. First checks the local database for graph status
+    2. If status is 'processing' and has workflow_id, checks the external workflow status
+    3. Updates the local database if workflow has completed
+    4. Returns the current status and optionally pipeline stage information
+    """
+    try:
+        # Build system filters
+        system_filters = {}
+        if folder_name:
+            system_filters["folder_name"] = folder_name
+        if end_user_id:
+            system_filters["end_user_id"] = end_user_id
+
+        # Get graph from database
+        graph = await document_service.db.get_graph(name, auth, system_filters=system_filters)
+        if not graph:
+            raise HTTPException(status_code=404, detail=f"Graph '{name}' not found")
+
+        # Check if we need to sync status with external workflow
+        current_status = graph.system_metadata.get("status", "unknown")
+        workflow_id = graph.system_metadata.get("workflow_id")
+        run_id = graph.system_metadata.get("run_id")
+
+        # If graph is marked as processing and has workflow info, check external status
+        if current_status == "processing" and workflow_id:
+            try:
+                # Get the graph service
+                graph_service = document_service.graph_service
+                from core.services.morphik_graph_service import MorphikGraphService
+
+                if isinstance(graph_service, MorphikGraphService):
+                    # Check external workflow status
+                    workflow_result = await graph_service.check_workflow_status(
+                        workflow_id=workflow_id, run_id=run_id, auth=auth
+                    )
+
+                    external_status = workflow_result.get("status")
+
+                    # If external workflow is completed or failed, update local database
+                    if external_status in ["completed", "failed"]:
+                        graph.system_metadata["status"] = external_status
+                        if external_status == "completed":
+                            # Clear workflow tracking data
+                            graph.system_metadata.pop("workflow_id", None)
+                            graph.system_metadata.pop("run_id", None)
+                        elif external_status == "failed":
+                            # Store error information
+                            error_msg = workflow_result.get("error", "Workflow failed")
+                            graph.system_metadata["error"] = error_msg
+
+                        # Update database
+                        await document_service.db.update_graph(graph)
+                        current_status = external_status
+
+                        logger.info(f"Updated graph '{name}' status from processing to {external_status}")
+
+                    # Add pipeline stage information if available
+                    pipeline_stage = workflow_result.get("pipeline_stage")
+                    if pipeline_stage:
+                        graph.system_metadata["pipeline_stage"] = pipeline_stage
+
+            except Exception as e:
+                logger.warning(f"Failed to check workflow status for graph '{name}': {e}")
+                # Don't fail the request, just log the warning
+
+        # Return comprehensive status information
+        response = {
+            "name": graph.name,
+            "status": current_status,
+            "created_at": graph.created_at.isoformat(),
+            "updated_at": graph.updated_at.isoformat(),
+        }
+
+        # Add optional fields if available
+        if workflow_id:
+            response["workflow_id"] = workflow_id
+        if run_id:
+            response["run_id"] = run_id
+        if graph.system_metadata.get("pipeline_stage"):
+            response["pipeline_stage"] = graph.system_metadata["pipeline_stage"]
+        if graph.system_metadata.get("error"):
+            response["error"] = graph.system_metadata["error"]
+        if graph.document_ids:
+            response["document_count"] = len(graph.document_ids)
+        if graph.entities:
+            response["entity_count"] = len(graph.entities)
+        if graph.relationships:
+            response["relationship_count"] = len(graph.relationships)
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting graph status for '{name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/graph/workflow/{workflow_id}/status", response_model=Dict[str, Any])
 @telemetry.track(operation_type="check_workflow_status", metadata_resolver=telemetry.workflow_status_metadata)
 async def check_workflow_status(
@@ -2092,9 +2201,26 @@ async def check_workflow_status(
                                 graph.system_metadata.pop("workflow_id", None)
                                 graph.system_metadata.pop("run_id", None)
                                 await document_service.db.update_graph(graph)
+                                logger.info(f"Auto-updated graph '{graph.name}' status to completed")
                                 break
                     except Exception as e:
                         logger.warning(f"Failed to update graph status after workflow completion: {e}")
+            elif result.get("status") == "failed":
+                # Also handle failed status updates
+                parts = workflow_id.split("-")
+                if len(parts) >= 3:
+                    graph_name = parts[2]
+                    try:
+                        graphs = await document_service.db.list_graphs(auth)
+                        for graph in graphs:
+                            if graph.name == graph_name or workflow_id in graph.system_metadata.get("workflow_id", ""):
+                                graph.system_metadata["status"] = "failed"
+                                graph.system_metadata["error"] = result.get("error", "Workflow failed")
+                                await document_service.db.update_graph(graph)
+                                logger.info(f"Auto-updated graph '{graph.name}' status to failed")
+                                break
+                    except Exception as e:
+                        logger.warning(f"Failed to update graph status after workflow failure: {e}")
 
             return result
         else:

@@ -2748,7 +2748,7 @@ class Morphik:
         self,
         graph_name: str,
         timeout_seconds: int = 300,
-        check_interval_seconds: int = 5,
+        check_interval_seconds: int = 2,
     ) -> Graph:
         """Block until the specified graph finishes processing.
 
@@ -2852,9 +2852,33 @@ class Morphik:
         return self._request("GET", f"graph/{name}/visualization", params=params)
 
     def check_workflow_status(self, workflow_id: str, run_id: Optional[str] = None) -> Dict[str, Any]:
-        """Poll the status of an asynchronous graph build/update workflow."""
+        """Poll the status of an async graph build/update workflow."""
         params = {"run_id": run_id} if run_id else None
         return self._request("GET", f"graph/workflow/{workflow_id}/status", params=params)
+
+    def get_graph_status(
+        self, graph_name: str, folder_name: Optional[str] = None, end_user_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get the current status of a graph with pipeline stage information.
+
+        This is a lightweight endpoint that checks local database status and
+        optionally syncs with external workflow status if the graph is processing.
+
+        Args:
+            graph_name: Name of the graph to check
+            folder_name: Optional folder name for scoping
+            end_user_id: Optional end user ID for scoping
+
+        Returns:
+            Dict containing status, pipeline_stage (if processing), and other metadata
+        """
+        params = {}
+        if folder_name:
+            params["folder_name"] = folder_name
+        if end_user_id:
+            params["end_user_id"] = end_user_id
+
+        return self._request("GET", f"graph/{graph_name}/status", params=params if params else None)
 
     # ------------------------------------------------------------------
     # Document download helpers ----------------------------------------

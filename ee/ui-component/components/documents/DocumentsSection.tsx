@@ -244,8 +244,8 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
       // Do an immediate poll
       pollProcessingDocuments();
 
-      // Then set up interval for every 10 seconds
-      pollingIntervalRef.current = setInterval(pollProcessingDocuments, 10000);
+      // Then set up interval for every 2 seconds
+      pollingIntervalRef.current = setInterval(pollProcessingDocuments, 2000);
     } else if (processingDocs.length === 0 && pollingIntervalRef.current) {
       // Stop polling if no processing documents
       clearInterval(pollingIntervalRef.current);
