@@ -2062,7 +2062,7 @@ class PostgresDatabase(BaseDatabase):
             await self.initialize()
 
         try:
-            now = datetime.now(UTC).isoformat()
+            now = datetime.now(UTC)  # .isoformat()
             async with self.async_session() as session:
                 await session.execute(
                     text(
