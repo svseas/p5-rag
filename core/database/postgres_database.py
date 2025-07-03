@@ -2062,19 +2062,19 @@ class PostgresDatabase(BaseDatabase):
             await self.initialize()
 
         try:
-            now = datetime.now(UTC)  # .isoformat()
+            now = datetime.now(UTC).isoformat()
             async with self.async_session() as session:
                 await session.execute(
                     text(
                         """
                         INSERT INTO chat_conversations (conversation_id, user_id, app_id, history, created_at, updated_at)
-                        VALUES (:cid, :uid, :aid, :hist, :now, :now)
+                        VALUES (:cid, :uid, :aid, :hist, CAST(:now AS TEXT), CAST(:now AS TEXT))
                         ON CONFLICT (conversation_id)
                         DO UPDATE SET
                             user_id = EXCLUDED.user_id,
                             app_id = EXCLUDED.app_id,
                             history = EXCLUDED.history,
-                            updated_at = :now
+                            updated_at = CAST(:now AS TEXT)
                         """
                     ),
                     {
