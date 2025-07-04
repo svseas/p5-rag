@@ -5,6 +5,8 @@ Compares multivector embeddings table in Supabase with TurboPuffer namespace dat
 """
 
 import asyncio
+
+# Add the project root to the path so we can import from core
 import os
 import sys
 from collections import defaultdict
@@ -13,7 +15,6 @@ from typing import Dict
 import psycopg
 from turbopuffer import AsyncTurbopuffer
 
-# Add the project root to the path so we can import from core
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 sys.path.insert(0, project_root)
