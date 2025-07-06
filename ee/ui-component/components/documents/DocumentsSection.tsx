@@ -1337,11 +1337,11 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
 
       {/* Root Level List View (selectedFolder is null) */}
       {selectedFolder === null ? (
-        <div className="flex flex-1 flex-col gap-4 md:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
           {/* Left Panel: Combined Folders and Documents List */}
           <div
             className={cn(
-              "flex w-full flex-col transition-all duration-300",
+              "flex min-h-0 w-full flex-col transition-all duration-300",
               selectedDocument ? "md:w-2/3" : "md:w-full"
             )}
           >
@@ -1365,7 +1365,9 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
               </div>
             ) : (
               // Combined list with header, search, and navigation
-              <div className={cn("relative flex flex-1 flex-col transition-opacity", loading ? "opacity-60" : "")}>
+              <div
+                className={cn("relative flex min-h-0 flex-1 flex-col transition-opacity", loading ? "opacity-60" : "")}
+              >
                 {/* Tiny corner spinner for loading state */}
                 {loading && (
                   <div className="absolute left-2 top-2 z-10 flex items-center">
@@ -1501,7 +1503,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
                 </div>
 
                 {/* Use DocumentList component for consistent styling and actions */}
-                <div className="flex-1">
+                <div className="min-h-0 flex-1">
                   <DocumentList
                     documents={filteredRootItems}
                     selectedDocument={selectedDocument}
@@ -1550,11 +1552,11 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
           )}
         </div>
       ) : (
-        <div className="flex flex-1 flex-col gap-4 md:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
           {/* Left Panel: Document List or Skeleton or Empty State */}
           <div
             className={cn(
-              "flex w-full flex-col transition-all duration-300",
+              "flex min-h-0 w-full flex-col transition-all duration-300",
               selectedDocument ? "md:w-2/3" : "md:w-full"
             )}
           >
@@ -1580,7 +1582,7 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
               // Document list with subtle background refresh indicator
               <div
                 className={cn(
-                  "relative flex-1 transition-opacity",
+                  "relative min-h-0 flex-1 transition-opacity",
                   loading && documents.length > 0 ? "opacity-60" : ""
                 )}
               >
