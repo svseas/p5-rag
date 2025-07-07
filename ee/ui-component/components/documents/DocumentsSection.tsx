@@ -1361,6 +1361,12 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
                   <Upload className="mx-auto mb-2 h-12 w-12 text-muted-foreground" />
                   <p className="text-muted-foreground">No folders or documents found.</p>
                   <p className="mt-2 text-xs text-muted-foreground">Upload files to get started.</p>
+                  <div className="mt-4">
+                    <Button onClick={() => setShowUploadDialog(true)} className="flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      Upload Documents
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1638,6 +1644,18 @@ const DocumentsSection: React.FC<DocumentsSectionProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* Upload Dialog - always available for empty state */}
+      {selectedFolder === null && (
+        <UploadDialog
+          showUploadDialog={showUploadDialog}
+          setShowUploadDialog={setShowUploadDialog}
+          loading={loading}
+          onFileUpload={handleFileUpload}
+          onBatchFileUpload={handleBatchFileUpload}
+          onTextUpload={handleTextUpload}
+        />
       )}
     </div>
   );
