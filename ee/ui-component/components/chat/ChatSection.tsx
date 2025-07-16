@@ -195,8 +195,8 @@ const ChatSection: React.FC<ChatSectionProps> = ({
 
     setLoadingGraphs(true);
     try {
-      console.log(`Fetching graphs from: ${apiBaseUrl}/graphs`);
-      const response = await fetch(`${apiBaseUrl}/graphs`, {
+      console.log(`Fetching graphs from: ${apiBaseUrl}/graph`);
+      const response = await fetch(`${apiBaseUrl}/graph`, {
         headers: {
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },

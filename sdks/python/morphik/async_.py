@@ -2456,7 +2456,7 @@ class AsyncMorphik:
                 print(f"Graph: {graph.name}, Entities: {len(graph.entities)}")
             ```
         """
-        response = await self._request("GET", "graphs")
+        response = await self._request("GET", "graph")
         graphs = self._logic._parse_graph_list_response(response)
         for g in graphs:
             g._client = self

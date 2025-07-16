@@ -2591,7 +2591,7 @@ class Morphik:
                 print(f"Graph: {graph.name}, Entities: {len(graph.entities)}")
             ```
         """
-        response = self._request("GET", "graphs")
+        response = self._request("GET", "graph")
         graphs = self._logic._parse_graph_list_response(response)
         for g in graphs:
             g._client = self
