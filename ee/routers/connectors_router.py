@@ -183,7 +183,7 @@ async def get_initiate_auth_url(
         raise HTTPException(status_code=500, detail="Internal server error preparing authentication URL.")
 
 
-@router.get("/{connector_type}/oauth2callback")
+@router.get("/{connector_type}/oauth2callback", response_model=None)
 async def connector_oauth_callback(
     request: Request,  # For accessing session and query parameters
     connector_type: str,  # From path, to verify against session

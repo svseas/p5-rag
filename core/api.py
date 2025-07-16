@@ -37,9 +37,20 @@ from core.models.request import (
     CreateGraphRequest,
     GenerateUriRequest,
     IngestTextRequest,
+    ListDocumentsRequest,
     RetrieveRequest,
     SetFolderRuleRequest,
     UpdateGraphRequest,
+)
+from core.models.responses import (
+    ChatTitleResponse,
+    DocumentAddToFolderResponse,
+    DocumentDeleteResponse,
+    DocumentDownloadUrlResponse,
+    FolderDeleteResponse,
+    FolderRuleResponse,
+    HealthCheckResponse,
+    ModelsResponse,
 )
 from core.models.workflows import Workflow
 from core.routes.document import router as document_router
@@ -159,13 +170,13 @@ else:
 
 
 # Simple health check endpoint
-@app.get("/ping")
+@app.get("/ping", response_model=HealthCheckResponse)
 async def ping_health():
     """Simple health check endpoint that returns 200 OK."""
     return {"status": "ok", "message": "Server is running"}
 
 
-@app.get("/models")
+@app.get("/models", response_model=ModelsResponse)
 async def get_available_models(auth: AuthContext = Depends(verify_token)):
     """
     Get list of available models from configuration.
@@ -430,12 +441,12 @@ async def retrieve_documents(request: RetrieveRequest, auth: AuthContext = Depen
 
 @app.post("/batch/documents", response_model=List[Document])
 @telemetry.track(operation_type="batch_get_documents", metadata_resolver=telemetry.batch_documents_metadata)
-async def batch_get_documents(request: Dict[str, Any], auth: AuthContext = Depends(verify_token)):
+async def batch_get_documents(batch_request: Dict[str, Any], auth: AuthContext = Depends(verify_token)):
     """
     Retrieve multiple documents by their IDs in a single batch operation.
 
     Args:
-        request: Dictionary containing:
+        batch_request: Dictionary containing:
             - document_ids: List of document IDs to retrieve
             - folder_name: Optional folder to scope the operation to
             - end_user_id: Optional end-user ID to scope the operation to
@@ -450,9 +461,9 @@ async def batch_get_documents(request: Dict[str, Any], auth: AuthContext = Depen
     try:
         # Extract document_ids from request
         perf.start_phase("request_extraction")
-        document_ids = request.get("document_ids", [])
-        folder_name = request.get("folder_name")
-        end_user_id = request.get("end_user_id")
+        document_ids = batch_request.get("document_ids", [])
+        folder_name = batch_request.get("folder_name")
+        end_user_id = batch_request.get("end_user_id")
 
         if not document_ids:
             perf.log_summary("No document IDs provided")
@@ -482,7 +493,7 @@ async def batch_get_documents(request: Dict[str, Any], auth: AuthContext = Depen
 
 @app.post("/batch/chunks", response_model=List[ChunkResult])
 @telemetry.track(operation_type="batch_get_chunks", metadata_resolver=telemetry.batch_chunks_metadata)
-async def batch_get_chunks(request: Dict[str, Any], auth: AuthContext = Depends(verify_token)):
+async def batch_get_chunks(batch_request: Dict[str, Any], auth: AuthContext = Depends(verify_token)):
     """
     Retrieve specific chunks by their document ID and chunk number in a single batch operation.
 
@@ -503,10 +514,10 @@ async def batch_get_chunks(request: Dict[str, Any], auth: AuthContext = Depends(
     try:
         # Extract sources from request
         perf.start_phase("request_extraction")
-        sources = request.get("sources", [])
-        folder_name = request.get("folder_name")
-        end_user_id = request.get("end_user_id")
-        use_colpali = request.get("use_colpali")
+        sources = batch_request.get("sources", [])
+        folder_name = batch_request.get("folder_name")
+        end_user_id = batch_request.get("end_user_id")
+        use_colpali = batch_request.get("use_colpali")
 
         if not sources:
             perf.log_summary("No sources provided")
@@ -958,21 +969,17 @@ async def agent_query(
 
 @app.post("/documents", response_model=List[Document])
 async def list_documents(
+    request: ListDocumentsRequest,
     auth: AuthContext = Depends(verify_token),
-    skip: int = 0,
-    limit: int = 10000,
-    filters: Optional[Dict[str, Any]] = None,
     folder_name: Optional[Union[str, List[str]]] = Query(None),
-    end_user_id: Optional[str] = None,
+    end_user_id: Optional[str] = Query(None),
 ):
     """
     List accessible documents.
 
     Args:
+        request: Request body containing filters and pagination
         auth: Authentication context
-        skip: Number of documents to skip
-        limit: Maximum number of documents to return
-        filters: Optional metadata filters
         folder_name: Optional folder to scope the operation to
         end_user_id: Optional end-user ID to scope the operation to
 
@@ -990,7 +997,9 @@ async def list_documents(
         system_filters["end_user_id"] = end_user_id
     # Note: auth.app_id is already handled in _build_access_filter_optimized
 
-    return await document_service.db.get_documents(auth, skip, limit, filters, system_filters)
+    return await document_service.db.get_documents(
+        auth, request.skip, request.limit, filters=request.document_filters, system_filters=system_filters
+    )
 
 
 @app.get("/documents/{document_id}", response_model=Document)
@@ -1055,7 +1064,7 @@ async def get_document_status(document_id: str, auth: AuthContext = Depends(veri
         raise HTTPException(status_code=500, detail=f"Error getting document status: {str(e)}")
 
 
-@app.delete("/documents/{document_id}")
+@app.delete("/documents/{document_id}", response_model=DocumentDeleteResponse)
 @telemetry.track(operation_type="delete_document", metadata_resolver=telemetry.document_delete_metadata)
 async def delete_document(document_id: str, auth: AuthContext = Depends(verify_token)):
     """
@@ -1086,7 +1095,7 @@ async def delete_document(document_id: str, auth: AuthContext = Depends(verify_t
 async def get_document_by_filename(
     filename: str,
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[Union[str, List[str]]] = None,
+    folder_name: Optional[Union[str, List[str]]] = Query(None),
     end_user_id: Optional[str] = None,
 ):
     """
@@ -1120,7 +1129,7 @@ async def get_document_by_filename(
         raise e
 
 
-@app.get("/documents/{document_id}/download_url")
+@app.get("/documents/{document_id}/download_url", response_model=DocumentDownloadUrlResponse)
 async def get_document_download_url(
     document_id: str,
     auth: AuthContext = Depends(verify_token),
@@ -1167,7 +1176,7 @@ async def get_document_download_url(
         raise HTTPException(status_code=500, detail=f"Error getting download URL: {str(e)}")
 
 
-@app.get("/documents/{document_id}/file")
+@app.get("/documents/{document_id}/file", response_model=None)
 async def download_document_file(document_id: str, auth: AuthContext = Depends(verify_token)):
     """
     Download the actual file content for a document.
@@ -1331,14 +1340,14 @@ async def update_document_file(
     metadata_resolver=telemetry.document_update_metadata_resolver,
 )
 async def update_document_metadata(
-    document_id: str, metadata: Dict[str, Any], auth: AuthContext = Depends(verify_token)
+    document_id: str, metadata_updates: Dict[str, Any], auth: AuthContext = Depends(verify_token)
 ):
     """
     Update only a document's metadata.
 
     Args:
         document_id: ID of the document to update
-        metadata: New metadata to merge with existing metadata
+        metadata_updates: New metadata to merge with existing metadata
         auth: Authentication context
 
     Returns:
@@ -1351,7 +1360,7 @@ async def update_document_metadata(
             content=None,
             file=None,
             filename=None,
-            metadata=metadata,
+            metadata=metadata_updates,
             rules=[],
             update_strategy="add",
             use_colpali=None,
@@ -1515,12 +1524,14 @@ async def update_cache(name: str, auth: AuthContext = Depends(verify_token)) -> 
 
 @app.post("/cache/{name}/add_docs")
 @telemetry.track(operation_type="add_docs_to_cache", metadata_resolver=telemetry.cache_add_docs_metadata)
-async def add_docs_to_cache(name: str, docs: List[str], auth: AuthContext = Depends(verify_token)) -> Dict[str, bool]:
+async def add_docs_to_cache(
+    name: str, document_ids: List[str], auth: AuthContext = Depends(verify_token)
+) -> Dict[str, bool]:
     """Manually add documents to an existing cache.
 
     Args:
         name: Name of the target cache.
-        docs: List of document IDs to insert.
+        document_ids: List of document IDs to insert.
         auth: Authentication context used for authorization.
 
     Returns:
@@ -1529,7 +1540,7 @@ async def add_docs_to_cache(name: str, docs: List[str], auth: AuthContext = Depe
     try:
         cache = document_service.active_caches[name]
         docs_to_add = [
-            await document_service.db.get_document(doc_id, auth) for doc_id in docs if doc_id not in cache.docs
+            await document_service.db.get_document(doc_id, auth) for doc_id in document_ids if doc_id not in cache.docs
         ]
         return cache.add_docs(docs_to_add)
     except PermissionError as e:
@@ -1779,7 +1790,7 @@ async def get_folder(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/folders/{folder_name}")
+@app.delete("/folders/{folder_name}", response_model=FolderDeleteResponse)
 @telemetry.track(operation_type="delete_folder", metadata_resolver=telemetry.delete_folder_metadata)
 async def delete_folder(
     folder_name: str,
@@ -1834,7 +1845,7 @@ async def delete_folder(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/folders/{folder_id}/documents/{document_id}")
+@app.post("/folders/{folder_id}/documents/{document_id}", response_model=DocumentAddToFolderResponse)
 @telemetry.track(operation_type="add_document_to_folder", metadata_resolver=telemetry.add_document_to_folder_metadata)
 async def add_document_to_folder(
     folder_id: str,
@@ -1864,7 +1875,7 @@ async def add_document_to_folder(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/folders/{folder_id}/documents/{document_id}")
+@app.delete("/folders/{folder_id}/documents/{document_id}", response_model=DocumentDeleteResponse)
 @telemetry.track(
     operation_type="remove_document_from_folder", metadata_resolver=telemetry.remove_document_from_folder_metadata
 )
@@ -1901,7 +1912,7 @@ async def remove_document_from_folder(
 async def get_graph(
     name: str,
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[Union[str, List[str]]] = None,
+    folder_name: Optional[Union[str, List[str]]] = Query(None),
     end_user_id: Optional[str] = None,
 ) -> Graph:
     """
@@ -1944,7 +1955,7 @@ async def get_graph(
 @telemetry.track(operation_type="list_graphs", metadata_resolver=telemetry.list_graphs_metadata)
 async def list_graphs(
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[Union[str, List[str]]] = None,
+    folder_name: Optional[Union[str, List[str]]] = Query(None),
     end_user_id: Optional[str] = None,
 ) -> List[Graph]:
     """
@@ -1984,7 +1995,7 @@ async def list_graphs(
 async def get_graph_visualization(
     name: str,
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[Union[str, List[str]]] = None,
+    folder_name: Optional[Union[str, List[str]]] = Query(None),
     end_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -2127,7 +2138,7 @@ async def delete_graph(
 async def get_graph_status(
     name: str,
     auth: AuthContext = Depends(verify_token),
-    folder_name: Optional[Union[str, List[str]]] = None,
+    folder_name: Optional[Union[str, List[str]]] = Query(None),
     end_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lightweight endpoint to check graph status with automatic status synchronization.
@@ -2432,7 +2443,7 @@ async def generate_cloud_uri(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/folders/{folder_id}/set_rule")
+@app.post("/folders/{folder_id}/set_rule", response_model=FolderRuleResponse)
 @telemetry.track(operation_type="set_folder_rule", metadata_resolver=telemetry.set_folder_rule_metadata)
 async def set_folder_rule(
     folder_id: str,
@@ -2871,7 +2882,7 @@ async def list_chat_conversations(
         raise HTTPException(status_code=500, detail="Failed to list chat conversations")
 
 
-@app.patch("/chats/{chat_id}/title")
+@app.patch("/chats/{chat_id}/title", response_model=ChatTitleResponse)
 async def update_chat_title(
     chat_id: str,
     title: str = Query(..., description="New title for the chat"),

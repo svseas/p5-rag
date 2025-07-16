@@ -34,7 +34,7 @@ class Cache:
         return response.get("success", False)
 
     def add_docs(self, docs: List[str]) -> bool:
-        response = self._db._request("POST", f"cache/{self._name}/add_docs", {"docs": docs})
+        response = self._db._request("POST", f"cache/{self._name}/add_docs", {"document_ids": docs})
         return response.get("success", False)
 
     def query(
