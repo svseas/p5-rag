@@ -320,6 +320,7 @@ class Folder:
         k: int = 4,
         min_score: float = 0.0,
         use_colpali: bool = True,
+        use_reranking: Optional[bool] = None,  # Add missing parameter
         additional_folders: Optional[List[str]] = None,
     ) -> List[DocumentResult]:
         """
@@ -331,6 +332,7 @@ class Folder:
             k: Number of results (default: 4)
             min_score: Minimum similarity threshold (default: 0.0)
             use_colpali: Whether to use ColPali-style embedding model
+            use_reranking: Whether to use reranking
             additional_folders: Optional list of extra folders to include in the scope
 
         Returns:
@@ -344,6 +346,7 @@ class Folder:
             "min_score": min_score,
             "use_colpali": use_colpali,
             "folder_name": effective_folder,
+            "use_reranking": use_reranking,
         }
 
         response = self._client._request("POST", "retrieve/docs", request)
@@ -358,6 +361,7 @@ class Folder:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         use_colpali: bool = True,
+        use_reranking: Optional[bool] = None,  # Add missing parameter
         graph_name: Optional[str] = None,
         hop_depth: int = 1,
         include_paths: bool = False,
@@ -379,6 +383,7 @@ class Folder:
             max_tokens: Maximum tokens in completion
             temperature: Model temperature
             use_colpali: Whether to use ColPali-style embedding model
+            use_reranking: Whether to use reranking
             graph_name: Optional name of the graph to use for knowledge graph-enhanced retrieval
             hop_depth: Number of relationship hops to traverse in the graph (1-3)
             include_paths: Whether to include relationship paths in the response
@@ -405,6 +410,7 @@ class Folder:
             prompt_overrides,
             effective_folder,
             None,  # end_user_id not supported at this level
+            use_reranking,
             chat_id,
             schema,
             llm_config,
@@ -894,6 +900,7 @@ class UserScope:
         k: int = 4,
         min_score: float = 0.0,
         use_colpali: bool = True,
+        use_reranking: Optional[bool] = None,  # Add missing parameter
         additional_folders: Optional[List[str]] = None,
     ) -> List[DocumentResult]:
         """
@@ -905,6 +912,7 @@ class UserScope:
             k: Number of results (default: 4)
             min_score: Minimum similarity threshold (default: 0.0)
             use_colpali: Whether to use ColPali-style embedding model
+            use_reranking: Whether to use reranking
             additional_folders: Optional list of extra folders to include in the scope
 
         Returns:
@@ -919,6 +927,7 @@ class UserScope:
             "use_colpali": use_colpali,
             "end_user_id": self._end_user_id,  # Add end user ID here
             "folder_name": effective_folder,  # Add folder name if provided
+            "use_reranking": use_reranking,
         }
 
         # Add folder name if scoped to a folder
@@ -937,6 +946,7 @@ class UserScope:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         use_colpali: bool = True,
+        use_reranking: Optional[bool] = None,  # Add missing parameter
         graph_name: Optional[str] = None,
         hop_depth: int = 1,
         include_paths: bool = False,
@@ -958,6 +968,7 @@ class UserScope:
             max_tokens: Maximum tokens in completion
             temperature: Model temperature
             use_colpali: Whether to use ColPali-style embedding model
+            use_reranking: Whether to use reranking
             graph_name: Optional name of the graph to use for knowledge graph-enhanced retrieval
             hop_depth: Number of relationship hops to traverse in the graph (1-3)
             include_paths: Whether to include relationship paths in the response
@@ -984,6 +995,7 @@ class UserScope:
             prompt_overrides,
             effective_folder,
             self._end_user_id,
+            use_reranking,
             chat_id,
             schema,
             llm_config,
@@ -1653,6 +1665,7 @@ class Morphik:
         k: int = 4,
         min_score: float = 0.0,
         use_colpali: bool = True,
+        use_reranking: Optional[bool] = None,  # Add missing parameter
         folder_name: Optional[Union[str, List[str]]] = None,
     ) -> List[DocumentResult]:
         """
@@ -1665,6 +1678,8 @@ class Morphik:
             min_score: Minimum similarity threshold (default: 0.0)
             use_colpali: Whether to use ColPali-style embedding model to retrieve the documents
                 (only works for documents ingested with `use_colpali=True`)
+            use_reranking: Whether to use reranking
+            folder_name: Optional folder name (or list of names) to scope the request
         Returns:
             List[DocumentResult]
 
@@ -1677,7 +1692,7 @@ class Morphik:
             ```
         """
         payload = self._logic._prepare_retrieve_docs_request(
-            query, filters, k, min_score, use_colpali, folder_name, None
+            query, filters, k, min_score, use_colpali, folder_name, None, use_reranking
         )
         response = self._request("POST", "retrieve/docs", data=payload)
         return self._logic._parse_document_result_list_response(response)
@@ -1691,6 +1706,7 @@ class Morphik:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         use_colpali: bool = True,
+        use_reranking: Optional[bool] = None,  # Add missing parameter
         graph_name: Optional[str] = None,
         hop_depth: int = 1,
         include_paths: bool = False,
@@ -1713,6 +1729,7 @@ class Morphik:
             temperature: Model temperature
             use_colpali: Whether to use ColPali-style embedding model to generate the completion
                 (only works for documents ingested with `use_colpali=True`)
+            use_reranking: Whether to use reranking
             graph_name: Optional name of the graph to use for knowledge graph-enhanced retrieval
             hop_depth: Number of relationship hops to traverse in the graph (1-3)
             include_paths: Whether to include relationship paths in the response
@@ -1807,6 +1824,7 @@ class Morphik:
             prompt_overrides,
             folder_name,
             None,  # end_user_id not supported at this level
+            use_reranking,
             chat_id,
             schema,
             llm_config,
