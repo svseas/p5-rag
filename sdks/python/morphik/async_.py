@@ -1839,7 +1839,7 @@ class AsyncMorphik:
         return response
 
     async def wait_for_document_completion(
-        self, document_id: str, timeout_seconds=300, check_interval_seconds=2
+        self, document_id: str, timeout_seconds=300, check_interval_seconds=2, progress_callback=None
     ) -> Document:
         """
         Wait for a document's processing to complete.
@@ -1848,6 +1848,8 @@ class AsyncMorphik:
             document_id: ID of the document to wait for
             timeout_seconds: Maximum time to wait for completion (default: 300 seconds)
             check_interval_seconds: Time between status checks (default: 2 seconds)
+            progress_callback: Optional async callback function that receives progress updates.
+                               Called with (current_step, total_steps, step_name, percentage)
 
         Returns:
             Document: Updated document with the latest status
@@ -1860,8 +1862,15 @@ class AsyncMorphik:
             ```python
             # Upload a file and wait for processing to complete
             doc = await db.ingest_file("large_document.pdf")
+
+            async def on_progress(current, total, step_name, percentage):
+                print(f"Progress: {step_name} ({current}/{total}) - {percentage}%")
+
             try:
-                completed_doc = await db.wait_for_document_completion(doc.external_id)
+                completed_doc = await db.wait_for_document_completion(
+                    doc.external_id,
+                    progress_callback=on_progress
+                )
                 print(f"Processing complete! Document has {len(completed_doc.chunk_ids)} chunks")
             except TimeoutError:
                 print("Processing is taking too long")
@@ -1881,6 +1890,23 @@ class AsyncMorphik:
                 return await self.get_document(document_id)
             elif status["status"] == "failed":
                 raise ValueError(f"Document processing failed: {status.get('error', 'Unknown error')}")
+            elif status["status"] == "processing" and "progress" in status and progress_callback:
+                # Call the progress callback with progress information
+                progress = status["progress"]
+                if asyncio.iscoroutinefunction(progress_callback):
+                    await progress_callback(
+                        progress.get("current_step", 0),
+                        progress.get("total_steps", 1),
+                        progress.get("step_name", "Processing"),
+                        progress.get("percentage", 0),
+                    )
+                else:
+                    progress_callback(
+                        progress.get("current_step", 0),
+                        progress.get("total_steps", 1),
+                        progress.get("step_name", "Processing"),
+                        progress.get("percentage", 0),
+                    )
 
             # Wait before checking again
             await asyncio.sleep(check_interval_seconds)
