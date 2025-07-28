@@ -252,6 +252,11 @@ def main():
         help="Skip Ollama availability check",
     )
     parser.add_argument(
+        "--skip-redis-check",
+        action="store_true",
+        help="Skip Redis container management (useful when running in Docker)",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -262,8 +267,9 @@ def main():
     # Set up logging first with specified level
     setup_logging(log_level=args.log.upper())
 
-    # Check and start Redis container
-    check_and_start_redis()
+    # Check and start Redis container (unless skipped)
+    if not args.skip_redis_check:
+        check_and_start_redis()
 
     # Load environment variables from .env file
     load_dotenv(override=True)

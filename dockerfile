@@ -161,7 +161,7 @@ if [ $# -gt 0 ]; then\n\
     exec "$@"\n\
 else\n\
     # Otherwise, execute the default command (uv run start_server.py)\n\
-    exec uv run start_server.py\n\
+    exec uv run start_server.py --skip-redis-check\n\
 fi\n\
 ' > /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 

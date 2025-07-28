@@ -26,7 +26,6 @@ services:
       - ./logs:/app/logs
       # Cache for HuggingFace models (e.g., rerankers)
       - huggingface_cache:/root/.cache/huggingface
-      - ./core:/app/core
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +54,6 @@ services:
       - ./storage:/app/storage
       - ./logs:/app/logs
       - huggingface_cache:/root/.cache/huggingface
-      - ./core:/app/core
     depends_on:
       postgres:
         condition: service_healthy
