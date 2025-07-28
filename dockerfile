@@ -172,6 +172,7 @@ COPY pyproject.toml uv.lock ./
 ## copy the fde package also to fix distribution not found error
 COPY fde ./fde
 
+COPY core ./core
 COPY ee ./ee
 COPY README.md LICENSE ./
 # Assuming start_server.py is at the root of your project
