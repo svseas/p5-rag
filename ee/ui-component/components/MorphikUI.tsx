@@ -30,7 +30,7 @@ import { useRouter, usePathname } from "next/navigation";
  */
 const MorphikUI: React.FC<MorphikUIProps> = props => {
   const {
-    connectionUri,
+    connectionUri: initialConnectionUri,
     apiBaseUrl = "http://localhost:8000",
     initialSection = "documents",
     initialFolder = null,
@@ -55,6 +55,7 @@ const MorphikUI: React.FC<MorphikUIProps> = props => {
 
   const [currentSection, setCurrentSection] = useState(initialSection);
   const [currentFolder, setCurrentFolder] = useState<string | null>(initialFolder);
+  const connectionUri = initialConnectionUri;
 
   const authToken = connectionUri ? extractTokenFromUri(connectionUri) : null;
   const effectiveApiBaseUrl = getApiBaseUrlFromUri(connectionUri ?? undefined, apiBaseUrl);

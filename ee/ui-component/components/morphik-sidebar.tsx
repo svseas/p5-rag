@@ -1,3 +1,18 @@
+/*
+ * MorphikSidebar - LOCAL DEVELOPMENT VERSION
+ *
+ * This sidebar is used by the local ui-component dev server via:
+ * layout.tsx → ConnectedSidebar → MorphikSidebar
+ *
+ * Features:
+ * - URL-based navigation (traditional Next.js routing)
+ * - URI editing capability for local development
+ * - localStorage persistence for connection settings
+ * - Used for standalone development and testing
+ *
+ * Safe to modify for local dev features - does NOT affect cloud UI!
+ * The cloud UI uses morphik-sidebar-stateful.tsx instead.
+ */
 "use client";
 
 import * as React from "react";
@@ -15,6 +30,7 @@ import {
   IconBook,
   IconMessageCircle,
   IconArrowRight,
+  IconLink,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -28,9 +44,14 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarGroup,
+  SidebarGroupContent,
 } from "@/components/ui/sidebar-new";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { normalizeToMorphikUri, getApiBaseUrlFromUri } from "@/lib/utils";
 
 const data = {
   user: {
@@ -109,6 +130,9 @@ interface MorphikSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onLogout?: () => void;
   onProfileNavigate?: (section: "account" | "billing" | "notifications") => void;
   onUpgradeClick?: () => void;
+  showEditableUri?: boolean;
+  connectionUri?: string | null;
+  onUriChange?: (newUri: string) => void;
 }
 
 export function MorphikSidebar({
@@ -116,16 +140,33 @@ export function MorphikSidebar({
   onLogout,
   onProfileNavigate,
   onUpgradeClick,
+  showEditableUri = true,
+  connectionUri,
+  onUriChange,
   ...props
 }: MorphikSidebarProps) {
   const [mounted, setMounted] = React.useState(false);
+  const [uriInput, setUriInput] = React.useState(connectionUri || "");
 
   // Ensure component is mounted before rendering theme-dependent content
   React.useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Just need to check if component is mounted for theme-dependent rendering
+  React.useEffect(() => {
+    setUriInput(connectionUri || "");
+  }, [connectionUri]);
+
+  const handleUriSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUriChange && uriInput.trim()) {
+      const normalizedUri = normalizeToMorphikUri(uriInput.trim());
+      onUriChange(normalizedUri);
+    }
+  };
+
+  // Display the current API URL for user feedback
+  const currentApiUrl = connectionUri ? getApiBaseUrlFromUri(connectionUri) : "Not connected";
 
   // Merge user profile with defaults
   const userData = {
@@ -168,6 +209,31 @@ export function MorphikSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        {showEditableUri && (
+          <SidebarGroup>
+            <SidebarGroupContent className="px-2 py-2">
+              <form onSubmit={handleUriSubmit} className="space-y-2">
+                <Label htmlFor="connection-uri" className="text-xs text-muted-foreground">
+                  Connection URI
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="connection-uri"
+                    type="text"
+                    placeholder="http://localhost:8000"
+                    value={uriInput}
+                    onChange={e => setUriInput(e.target.value)}
+                    className="text-xs"
+                  />
+                  <Button type="submit" size="sm" variant="outline">
+                    <IconLink className="h-3 w-3" />
+                  </Button>
+                </div>
+                {mounted && <div className="text-xs text-muted-foreground">Current: {currentApiUrl}</div>}
+              </form>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         <NavMain items={data.navMain} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
         {/* Show upgrade button for free users in cloud UI only */}

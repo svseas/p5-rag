@@ -1,3 +1,18 @@
+/*
+ * MorphikSidebarStateful - CLOUD UI VERSION
+ *
+ * This sidebar is used by the cloud UI (morphik-cloud-ui) via:
+ * TrackedMorphikUI → MorphikUI → MorphikSidebarStateful
+ *
+ * Features:
+ * - Section-based navigation (onSectionChange callbacks)
+ * - Single-page app experience with dynamic content switching
+ * - No URI editing capability (cloud manages connections)
+ * - Used in production cloud deployments
+ *
+ * DO NOT add URI editing functionality here - it will affect cloud users!
+ * For local development URI editing, see morphik-sidebar.tsx instead.
+ */
 "use client";
 
 import * as React from "react";

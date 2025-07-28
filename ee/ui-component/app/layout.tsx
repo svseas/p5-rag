@@ -3,11 +3,11 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { AlertSystem } from "@/components/ui/alert-system";
 import { ThemeProvider } from "@/components/theme-provider";
-import { MorphikSidebar } from "@/components/morphik-sidebar";
 import { DynamicSiteHeader } from "@/components/dynamic-site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar-new";
 import { MorphikProvider } from "@/contexts/morphik-context";
 import { HeaderProvider } from "@/contexts/header-context";
+import { ConnectedSidebar } from "@/components/connected-sidebar";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     } as React.CSSProperties
                   }
                 >
-                  <MorphikSidebar variant="inset" />
+                  <ConnectedSidebar />
                   <SidebarInset>
                     <DynamicSiteHeader />
                     <div className="flex flex-1 flex-col p-4 md:p-6">{children}</div>
