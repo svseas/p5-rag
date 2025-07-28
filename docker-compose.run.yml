@@ -1,3 +1,9 @@
+# Purpose: Production Docker Compose configuration
+# This file is for end users running the pre-built Morphik image from ghcr.io
+# Downloaded by install_docker.sh script during installation
+# Use start-morphik.sh to run this with automatic port detection from morphik.toml
+# Note: Always mounts morphik.toml for configuration
+
 services:
   morphik:
     image: ghcr.io/morphik-org/morphik-core:latest
@@ -12,8 +18,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      # To use a custom config, create a 'morphik.toml' file locally and uncomment the following line.
-      # - ./morphik.toml:/app/morphik.toml:ro
+      # Configuration file (always mounted)
+      - ./morphik.toml:/app/morphik.toml:ro
       # Persist storage for uploaded files
       - ./storage:/app/storage
       # Persist logs
@@ -44,8 +50,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
-      # To use a custom config, create a 'morphik.toml' file locally and uncomment the following line.
-      # - ./morphik.toml:/app/morphik.toml:ro
+      # Configuration file (always mounted)
+      - ./morphik.toml:/app/morphik.toml:ro
       - ./storage:/app/storage
       - ./logs:/app/logs
       - huggingface_cache:/root/.cache/huggingface

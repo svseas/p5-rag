@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Purpose: End-user installation script for Morphik
+# This script downloads docker-compose.run.yml, creates .env file, downloads morphik.toml,
+# and starts all services. Creates start-morphik.sh for easy restarts with automatic
+# port detection from morphik.toml configuration.
+# Usage: curl -sSL https://install.morphik.ai | bash
+
 # --- Configuration ---
 REPO_URL="https://raw.githubusercontent.com/morphik-org/morphik-core/main"
 COMPOSE_FILE="docker-compose.run.yml"
@@ -80,29 +86,70 @@ sed -i.bak "s|OPENAI_API_KEY=|OPENAI_API_KEY=$openai_api_key|" .env
 rm -f .env.bak
 print_success "'.env' file has been configured with your API key."
 
-# 5. Ask about custom configuration
-print_info "The default setup uses the standard OpenAI models."
-read -p "Do you want to customize the configuration (e.g., change models) before starting? (y/N): " customize_choice < /dev/tty
-if [[ "$customize_choice" == "y" || "$customize_choice" == "Y" ]]; then
-    print_info "Extracting default 'morphik.toml' for you to edit..."
-    docker run --rm ghcr.io/morphik-org/morphik-core:latest \
-           cat /app/morphik.toml.default > morphik.toml
+# 5. Download and setup configuration
+print_info "Setting up configuration file..."
+print_info "Extracting default 'morphik.toml' for you to customize..."
+docker run --rm ghcr.io/morphik-org/morphik-core:latest \
+       cat /app/morphik.toml.default > morphik.toml
 
-    print_info "The configuration has been saved to 'morphik.toml'. Please edit this file in another terminal window now."
-    read -p "Press [Enter] once you have finished editing..." < /dev/tty
+print_info "Enabling configuration mounting in '$COMPOSE_FILE'..."
+# Use sed to uncomment the volume mount lines for both services
+sed -i.bak 's|# - ./morphik.toml:/app/morphik.toml:ro|- ./morphik.toml:/app/morphik.toml:ro|g' "$COMPOSE_FILE"
+rm -f ${COMPOSE_FILE}.bak
 
-    print_info "Enabling custom configuration in '$COMPOSE_FILE'..."
-    # Use sed to uncomment the volume mount lines for both services
-    sed -i.bak 's|# - ./morphik.toml:/app/morphik.toml:ro|- ./morphik.toml:/app/morphik.toml:ro|g' "$COMPOSE_FILE"
-    rm -f ${COMPOSE_FILE}.bak
-    print_success "Custom configuration has been enabled."
-fi
+print_success "Configuration has been set up at 'morphik.toml'."
+print_info "You can edit this file to customize models, ports, or other settings."
+read -p "Press [Enter] to continue with the current configuration or edit 'morphik.toml' in another terminal first..." < /dev/tty
+
+# Update port mapping in docker-compose.run.yml to match morphik.toml
+API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]*=/ {gsub(/^port[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "8000")
+sed -i.bak "s|\"8000:8000\"|\"${API_PORT}:${API_PORT}\"|g" "$COMPOSE_FILE"
+rm -f ${COMPOSE_FILE}.bak
 
 # 6. Start the application
 print_info "Starting the Morphik stack... This may take a few minutes for the first run."
 docker compose -f "$COMPOSE_FILE" up -d
 
-print_success "Morphik is now running!"
-print_info "API is available at http://localhost:8000"
-print_info "To view logs, run: docker compose -f $COMPOSE_FILE logs -f"
-print_info "To stop the services, run: docker compose -f $COMPOSE_FILE down"
+print_success "🚀 Morphik is now running!"
+
+# Read port from morphik.toml to display correct URL
+API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]*=/ {gsub(/^port[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "8000")
+
+echo ""
+print_info "🌐 API endpoints:"
+print_info "   Health check: http://localhost:${API_PORT}/health"
+print_info "   API docs:     http://localhost:${API_PORT}/docs"
+print_info "   Main API:     http://localhost:${API_PORT}"
+
+echo ""
+print_info "📋 Management commands:"
+print_info "   View logs:    docker compose -f $COMPOSE_FILE logs -f"
+print_info "   Stop services: docker compose -f $COMPOSE_FILE down"
+print_info "   Restart:      ./start-morphik.sh"
+
+# Create convenience startup script
+cat > start-morphik.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Purpose: Production startup script for Morphik
+# Automatically updates port mapping from morphik.toml
+
+API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]*=/ {gsub(/^port[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "8000")
+CURRENT_PORT=$(grep -oE '"[0-9]+:[0-9]+"' docker-compose.run.yml | head -1 | cut -d: -f1 | tr -d '"')
+
+if [ "$CURRENT_PORT" != "$API_PORT" ]; then
+    echo "Updating port mapping from $CURRENT_PORT to $API_PORT..."
+    sed -i.bak "s|\"${CURRENT_PORT}:${CURRENT_PORT}\"|\"${API_PORT}:${API_PORT}\"|g" docker-compose.run.yml
+    rm -f docker-compose.run.yml.bak
+fi
+
+docker compose -f docker-compose.run.yml up -d
+echo "🚀 Morphik is running on http://localhost:${API_PORT}"
+echo "   Health: http://localhost:${API_PORT}/health"
+echo "   Docs:   http://localhost:${API_PORT}/docs"
+EOF
+chmod +x start-morphik.sh
+
+echo ""
+print_success "🎉 Enjoy using Morphik!"

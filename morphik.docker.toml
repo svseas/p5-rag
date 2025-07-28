@@ -1,3 +1,9 @@
+# Purpose: Default configuration file for Docker deployments
+# This file is copied into the Docker image as morphik.toml.default
+# End users receive this file when running install_docker.sh
+# Users can modify this file to change ports, models, and other settings
+# Note: Changes to host/port are automatically detected by start-morphik.sh
+
 [api]
 host = "0.0.0.0"
 port = 8000

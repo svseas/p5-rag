@@ -1,5 +1,10 @@
 # syntax=docker/dockerfile:1
 
+# Purpose: Production Docker image for Morphik Core
+# This file builds the official Morphik image that gets published to ghcr.io
+# It includes all dependencies and uses start_server.py which reads config from morphik.toml
+# Used by: GitHub Actions (docker-publish.yml) and developers building locally
+
 # Build stage
 FROM python:3.11.12-slim AS builder
 
@@ -106,8 +111,6 @@ RUN mkdir -p storage logs
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV HOST=0.0.0.0
-ENV PORT=8000
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:/usr/local/bin:${PATH}"
 
@@ -158,7 +161,7 @@ if [ $# -gt 0 ]; then\n\
     exec "$@"\n\
 else\n\
     # Otherwise, execute the default command (uv run start_server.py)\n\
-    exec uv run uvicorn core.api:app --host $HOST --port $PORT --loop asyncio --http auto --ws auto --lifespan auto\n\
+    exec uv run start_server.py\n\
 fi\n\
 ' > /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 
