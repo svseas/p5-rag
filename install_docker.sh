@@ -113,10 +113,10 @@ read -p "Would you like to install the Admin UI? (y/N): " install_ui < /dev/tty
 
 UI_PROFILE=""
 if [[ "$install_ui" == "y" || "$install_ui" == "Y" ]]; then
-    print_info "Downloading UI component files..."
-    # Extract the UI component from the Docker image
+    print_info "Extracting UI component files from Docker image..."
+    # Extract the UI component from the Docker image (now included in the image)
     docker run --rm ghcr.io/morphik-org/morphik-core:latest \
-           tar -czf - -C / app/ee/ui-component | tar -xzf - --strip-components=2
+           tar -czf - -C /app ee/ui-component | tar -xzf -
 
     if [ -d "ee/ui-component" ]; then
         print_success "UI component downloaded successfully."
@@ -125,6 +125,9 @@ if [[ "$install_ui" == "y" || "$install_ui" == "Y" ]]; then
         # Update NEXT_PUBLIC_API_URL to use the correct port
         sed -i.bak "s|NEXT_PUBLIC_API_URL=http://localhost:8000|NEXT_PUBLIC_API_URL=http://localhost:${API_PORT}|g" "$COMPOSE_FILE"
         rm -f ${COMPOSE_FILE}.bak
+
+        # Save UI installation flag for start-morphik.sh
+        echo "UI_INSTALLED=true" >> .env
     else
         print_warning "Failed to download UI component. Continuing without UI."
     fi
@@ -179,7 +182,7 @@ fi
 
 # Check if UI is installed
 UI_PROFILE=""
-if [ -d "ee/ui-component" ]; then
+if [ -f ".env" ] && grep -q "UI_INSTALLED=true" .env; then
     UI_PROFILE="--profile ui"
 fi
 

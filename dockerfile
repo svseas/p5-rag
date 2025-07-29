@@ -48,6 +48,10 @@ RUN --mount=type=cache,target=${UV_CACHE_DIR} \
 # Assuming start_server.py is at the root or handled by pyproject.toml structure.
 COPY . .
 
+# Copy the UI component (including it in the image for optional use)
+# This ensures the UI is available when users want to enable it
+COPY ee/ui-component /app/ee/ui-component
+
 # Install the project itself into the venv in non-editable mode
 # Cache buster: 1 - verbose flag added
 RUN --mount=type=cache,target=${UV_CACHE_DIR} \
