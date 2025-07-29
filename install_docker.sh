@@ -93,6 +93,27 @@ print_info "Extracting default 'morphik.toml' for you to customize..."
 docker run --rm ghcr.io/morphik-org/morphik-core:latest \
        cat /app/morphik.toml.default > morphik.toml
 
+# 5.1 Ask about GPU availability for multimodal embeddings
+echo ""
+print_info "🚀 Morphik achieves ultra-accurate document understanding through advanced multimodal embeddings."
+print_info "   These embeddings excel at processing images, PDFs, and complex layouts."
+print_info "   While Morphik will work without a GPU, for best results we recommend using a GPU-enabled machine."
+echo ""
+read -p "Do you have a GPU available for Morphik to use? (y/N): " has_gpu < /dev/tty
+
+if [[ "$has_gpu" != "y" && "$has_gpu" != "Y" ]]; then
+    print_warning "Disabling multimodal embeddings since no GPU is available."
+    print_info "Morphik will still work great with text-based embeddings!"
+    print_info "You can enable multimodal embeddings later if you add GPU support."
+    # Disable ColPali in morphik.toml
+    sed -i.bak 's/enable_colpali = true/enable_colpali = false/' morphik.toml
+    rm -f morphik.toml.bak
+    print_success "Configuration updated for CPU-only operation."
+else
+    print_success "Excellent! Multimodal embeddings will be enabled for maximum accuracy."
+    print_info "Make sure your Docker setup has GPU passthrough configured if using NVIDIA GPUs."
+fi
+
 print_info "Enabling configuration mounting in '$COMPOSE_FILE'..."
 # Use sed to uncomment the volume mount lines for both services
 sed -i.bak 's|# - ./morphik.toml:/app/morphik.toml:ro|- ./morphik.toml:/app/morphik.toml:ro|g' "$COMPOSE_FILE"
@@ -172,6 +193,15 @@ set -e
 # Purpose: Production startup script for Morphik
 # Automatically updates port mapping from morphik.toml and includes UI if installed
 
+# Color functions
+print_info() {
+    echo -e "\033[34m[INFO]\033[0m $1"
+}
+
+print_warning() {
+    echo -e "\033[33m[WARNING]\033[0m $1"
+}
+
 API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]*=/ {gsub(/^port[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "8000")
 CURRENT_PORT=$(grep -oE '"[0-9]+:[0-9]+"' docker-compose.run.yml | head -1 | cut -d: -f1 | tr -d '"')
 
@@ -179,6 +209,13 @@ if [ "$CURRENT_PORT" != "$API_PORT" ]; then
     echo "Updating port mapping from $CURRENT_PORT to $API_PORT..."
     sed -i.bak "s|\"${CURRENT_PORT}:${CURRENT_PORT}\"|\"${API_PORT}:${API_PORT}\"|g" docker-compose.run.yml
     rm -f docker-compose.run.yml.bak
+fi
+
+# Check multimodal embeddings configuration
+COLPALI_ENABLED=$(awk '/^\[morphik\]/{flag=1; next} /^\[/{flag=0} flag && /^enable_colpali[[:space:]]*=/ {gsub(/^enable_colpali[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "true")
+
+if [ "$COLPALI_ENABLED" = "false" ]; then
+    print_warning "Multimodal embeddings are disabled. For best results with images/PDFs, enable them in morphik.toml if you have a GPU."
 fi
 
 # Check if UI is installed

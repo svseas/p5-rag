@@ -114,7 +114,7 @@ services:
       - morphik-network
 
   ui:
-    image: node:20-alpine
+    image: node:22-alpine
     container_name: morphik-ui
     # Enable this profile to run the Web UI
     profiles:
