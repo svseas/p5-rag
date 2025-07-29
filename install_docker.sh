@@ -106,11 +106,37 @@ API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]
 sed -i.bak "s|\"8000:8000\"|\"${API_PORT}:${API_PORT}\"|g" "$COMPOSE_FILE"
 rm -f ${COMPOSE_FILE}.bak
 
+# 5.5. Ask about UI installation
+echo ""
+print_info "Morphik includes an admin UI for easier interaction."
+read -p "Would you like to install the Admin UI? (y/N): " install_ui < /dev/tty
+
+UI_PROFILE=""
+if [[ "$install_ui" == "y" || "$install_ui" == "Y" ]]; then
+    print_info "Downloading UI component files..."
+    # Extract the UI component from the Docker image
+    docker run --rm ghcr.io/morphik-org/morphik-core:latest \
+           tar -czf - -C / app/ee/ui-component | tar -xzf - --strip-components=2
+
+    if [ -d "ee/ui-component" ]; then
+        print_success "UI component downloaded successfully."
+        UI_PROFILE="--profile ui"
+
+        # Update NEXT_PUBLIC_API_URL to use the correct port
+        sed -i.bak "s|NEXT_PUBLIC_API_URL=http://localhost:8000|NEXT_PUBLIC_API_URL=http://localhost:${API_PORT}|g" "$COMPOSE_FILE"
+        rm -f ${COMPOSE_FILE}.bak
+    else
+        print_warning "Failed to download UI component. Continuing without UI."
+    fi
+fi
+
 # 6. Start the application
 print_info "Starting the Morphik stack... This may take a few minutes for the first run."
-docker compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" $UI_PROFILE up -d
 
-print_success "🚀 Morphik is now running!"
+print_success "🚀 Morphik has been started!"
+print_info "📝 Check the logs for status - it can take a few minutes to fully load"
+print_info "🔄 The URL will show 'unavailable' until the service is ready"
 
 # Read port from morphik.toml to display correct URL
 API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]*=/ {gsub(/^port[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "8000")
@@ -121,10 +147,17 @@ print_info "   Health check: http://localhost:${API_PORT}/health"
 print_info "   API docs:     http://localhost:${API_PORT}/docs"
 print_info "   Main API:     http://localhost:${API_PORT}"
 
+if [[ -n "$UI_PROFILE" ]]; then
+    echo ""
+    print_info "🎨 Admin UI:"
+    print_info "   Interface:    http://localhost:3003"
+    print_info "   Note: The UI may take a few minutes to build on first run"
+fi
+
 echo ""
 print_info "📋 Management commands:"
-print_info "   View logs:    docker compose -f $COMPOSE_FILE logs -f"
-print_info "   Stop services: docker compose -f $COMPOSE_FILE down"
+print_info "   View logs:    docker compose -f $COMPOSE_FILE $UI_PROFILE logs -f"
+print_info "   Stop services: docker compose -f $COMPOSE_FILE $UI_PROFILE down"
 print_info "   Restart:      ./start-morphik.sh"
 
 # Create convenience startup script
@@ -133,7 +166,7 @@ cat > start-morphik.sh << 'EOF'
 set -e
 
 # Purpose: Production startup script for Morphik
-# Automatically updates port mapping from morphik.toml
+# Automatically updates port mapping from morphik.toml and includes UI if installed
 
 API_PORT=$(awk '/^\[api\]/{flag=1; next} /^\[/{flag=0} flag && /^port[[:space:]]*=/ {gsub(/^port[[:space:]]*=[[:space:]]*/, ""); print; exit}' morphik.toml 2>/dev/null || echo "8000")
 CURRENT_PORT=$(grep -oE '"[0-9]+:[0-9]+"' docker-compose.run.yml | head -1 | cut -d: -f1 | tr -d '"')
@@ -144,10 +177,20 @@ if [ "$CURRENT_PORT" != "$API_PORT" ]; then
     rm -f docker-compose.run.yml.bak
 fi
 
-docker compose -f docker-compose.run.yml up -d
+# Check if UI is installed
+UI_PROFILE=""
+if [ -d "ee/ui-component" ]; then
+    UI_PROFILE="--profile ui"
+fi
+
+docker compose -f docker-compose.run.yml $UI_PROFILE up -d
 echo "🚀 Morphik is running on http://localhost:${API_PORT}"
 echo "   Health: http://localhost:${API_PORT}/health"
 echo "   Docs:   http://localhost:${API_PORT}/docs"
+if [ -n "$UI_PROFILE" ]; then
+    echo ""
+    echo "🎨 Admin UI: http://localhost:3003"
+fi
 EOF
 chmod +x start-morphik.sh
 
