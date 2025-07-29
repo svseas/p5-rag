@@ -69,22 +69,23 @@ fi
 # 4. Create .env and get User Input for API Key
 print_info "Creating '.env' file for your secrets..."
 cat > .env <<EOF
-# Your OpenAI API key is required
+# Your OpenAI API key (optional - you can configure other providers in morphik.toml)
 OPENAI_API_KEY=
 
 # A secret key for signing JWTs. A random one is generated for you.
 JWT_SECRET_KEY=your-super-secret-key-that-is-long-and-random-$(openssl rand -hex 16)
 EOF
 
-read -p "Please enter your OpenAI API Key (it will be saved to the .env file): " openai_api_key < /dev/tty
+print_info "Morphik supports 100s of models including OpenAI, Anthropic (Claude), Google Gemini, local models, and even custom models!"
+read -p "Please enter your OpenAI API Key (or press Enter to skip and configure later): " openai_api_key < /dev/tty
 if [[ -z "$openai_api_key" ]]; then
-    print_error "OpenAI API Key cannot be empty."
+    print_warning "No OpenAI API key provided. You can add it later to .env or configure other providers in morphik.toml"
+else
+    # Use sed to safely replace the key in the .env file.
+    sed -i.bak "s|OPENAI_API_KEY=|OPENAI_API_KEY=$openai_api_key|" .env
+    rm -f .env.bak
+    print_success "'.env' file has been configured with your API key."
 fi
-
-# Use sed to safely replace the key in the .env file.
-sed -i.bak "s|OPENAI_API_KEY=|OPENAI_API_KEY=$openai_api_key|" .env
-rm -f .env.bak
-print_success "'.env' file has been configured with your API key."
 
 # 5. Download and setup configuration
 print_info "Setting up configuration file..."
