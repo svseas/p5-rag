@@ -25,7 +25,7 @@ services:
       - "8000:8000"
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-here}
-      - POSTGRES_URI=postgresql+asyncpg://morphik:morphik@postgres:5432/morphik?sslmode=disable
+      - POSTGRES_URI=postgresql+asyncpg://morphik:morphik@postgres:5432/morphik?ssl=false
       - PGPASSWORD=morphik
       - LOG_LEVEL=DEBUG
       - REDIS_HOST=redis
@@ -58,7 +58,7 @@ services:
     command: arq core.workers.ingestion_worker.WorkerSettings
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-here}
-      - POSTGRES_URI=postgresql+asyncpg://morphik:morphik@postgres:5432/morphik?sslmode=disable
+      - POSTGRES_URI=postgresql+asyncpg://morphik:morphik@postgres:5432/morphik?ssl=false
       - PGPASSWORD=morphik
       - LOG_LEVEL=DEBUG
       - REDIS_HOST=redis

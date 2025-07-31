@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Union
 
@@ -8,7 +9,7 @@ from core.database.base_database import BaseDatabase
 from core.embedding.base_embedding_model import BaseEmbeddingModel
 from core.models.auth import AuthContext
 from core.models.completion import ChunkSource, CompletionRequest, CompletionResponse
-from core.models.documents import ChunkResult
+from core.models.documents import ChunkResult, Document
 from core.models.graph import Graph
 from core.models.prompts import GraphPromptOverrides, QueryPromptOverrides
 
@@ -31,6 +32,62 @@ class MorphikGraphService:
         self.completion_model = completion_model
         self.base_url = base_url
         self.graph_api_key = graph_api_key
+
+    async def _prepare_document_content(self, doc: Document, document_service) -> str:
+        """
+        Prepare document content for graph processing.
+        If content is empty but storage info exists, create a parse request.
+
+        Contract with remote graph service:
+        - If document has content in system_metadata["content"], returns it as-is
+        - If content is empty BUT document has storage_info, returns a special format:
+          "__MORPHIK_PARSE_REQUEST__\n{json_metadata}"
+          where json_metadata contains:
+            - parse_required: True (indicates parsing needed)
+            - document_id: Document's external ID
+            - filename: Original filename
+            - content_type: MIME type
+            - storage_info: Dict with bucket and key
+            - download_url: Pre-signed URL for direct download (if available)
+        - Image-graph-rag should detect "__MORPHIK_PARSE_REQUEST__" prefix and:
+          1. Parse the JSON metadata
+          2. Download the file using download_url
+          3. Extract text content based on content_type
+          4. Process the extracted text for graph building
+
+        Args:
+            doc: Document object from morphik database
+            document_service: DocumentService instance with storage access
+
+        Returns:
+            str: Either the document's text content or a parse request in special format
+        """
+        doc_content = doc.system_metadata.get("content", "") if doc.system_metadata else ""
+
+        # If content is empty but we have storage info, pass metadata for parsing
+        if not doc_content.strip() and doc.storage_info:
+            # Create a structured format that image-graph-rag can parse
+            doc_metadata = {
+                "parse_required": True,
+                "document_id": doc.external_id,
+                "filename": doc.filename,
+                "content_type": doc.content_type,
+                "storage_info": doc.storage_info,
+            }
+
+            # Add download URL using document_service storage
+            try:
+                bucket = doc.storage_info.get("bucket")
+                key = doc.storage_info.get("key")
+                if bucket and key:
+                    doc_metadata["download_url"] = await document_service.storage.get_download_url(bucket, key)
+            except Exception as e:
+                logger.warning(f"Failed to get download URL for document {doc.external_id}: {e}")
+
+            # Pass as JSON string that image-graph-rag can detect and parse
+            doc_content = f"__MORPHIK_PARSE_REQUEST__\n{json.dumps(doc_metadata)}"
+
+        return doc_content
 
     async def _make_api_request(
         self,
@@ -303,7 +360,8 @@ class MorphikGraphService:
                 failed_docs = 0
 
                 for doc in docs:
-                    doc_content = doc.system_metadata.get("content", "") if doc.system_metadata else ""
+                    doc_content = await self._prepare_document_content(doc, document_service)
+
                     if not doc_content.strip():
                         continue
 
@@ -400,7 +458,8 @@ class MorphikGraphService:
 
             try:
                 for doc in new_docs:
-                    doc_content = doc.system_metadata.get("content", "") if doc.system_metadata else ""
+                    doc_content = await self._prepare_document_content(doc, document_service)
+
                     if not doc_content.strip():
                         continue
 
