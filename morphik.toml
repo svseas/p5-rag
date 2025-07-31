@@ -99,7 +99,7 @@ model = "ollama_qwen_vision"  # Reference to a key in registered_models
 frame_sample_rate = -1  # Set to -1 to disable frame captioning
 
 [reranker]
-use_reranker = true
+use_reranker = false
 provider = "flag"
 model_name = "BAAI/bge-reranker-large"
 query_max_length = 256
