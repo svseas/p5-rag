@@ -74,6 +74,9 @@ OPENAI_API_KEY=
 
 # A secret key for signing JWTs. A random one is generated for you.
 JWT_SECRET_KEY=your-super-secret-key-that-is-long-and-random-$(openssl rand -hex 16)
+
+# Local URI token for secure URI generation (required for creating connection URIs)
+LOCAL_URI_TOKEN=
 EOF
 
 print_info "Morphik supports 100s of models including OpenAI, Anthropic (Claude), Google Gemini, local models, and even custom models!"
@@ -86,6 +89,25 @@ else
     rm -f .env.bak
     print_success "'.env' file has been configured with your API key."
 fi
+
+echo ""
+print_info "🔐 Morphik can generate secure connection URIs that allow you to connect client applications (like the Python SDK) to your local instance."
+print_info "   These URIs contain authentication tokens and can optionally use your external IP address for remote access."
+print_info "   To generate these URIs securely, you need to set a LOCAL_URI_TOKEN - this acts as a password to prevent unauthorized URI generation."
+print_info "   Without this token, anyone with access to your Morphik instance could generate connection URIs."
+echo ""
+read -p "Please enter a secure LOCAL_URI_TOKEN (or press Enter to generate one automatically): " local_uri_token < /dev/tty
+if [[ -z "$local_uri_token" ]]; then
+    # Generate a random token
+    local_uri_token="morphik-$(openssl rand -hex 16)"
+    print_info "Generated LOCAL_URI_TOKEN: $local_uri_token"
+    print_warning "Save this token securely - you'll need it to generate connection URIs!"
+fi
+
+# Use sed to safely replace the token in the .env file.
+sed -i.bak "s|LOCAL_URI_TOKEN=|LOCAL_URI_TOKEN=$local_uri_token|" .env
+rm -f .env.bak
+print_success "'.env' file has been configured with your LOCAL_URI_TOKEN."
 
 # 5. Download and setup configuration
 print_info "Setting up configuration file..."

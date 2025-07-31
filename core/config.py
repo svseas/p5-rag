@@ -159,6 +159,9 @@ class Settings(BaseSettings):
     # Workflows configuration
     WORKFLOW_MODEL: Optional[str] = None
 
+    # Local URI token for authentication
+    LOCAL_URI_TOKEN: Optional[str] = None
+
 
 @lru_cache()
 def get_settings() -> Settings:
@@ -400,6 +403,9 @@ def get_settings() -> Settings:
     # Load workflows config
     if "workflows" in config and "model" in config["workflows"]:
         settings_dict["WORKFLOW_MODEL"] = config["workflows"]["model"]
+
+    # Load LOCAL_URI_TOKEN from environment
+    settings_dict["LOCAL_URI_TOKEN"] = os.environ.get("LOCAL_URI_TOKEN")
 
     # Load multivector store config
     if "multivector_store" in config:
