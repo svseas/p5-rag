@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import arq
 import jwt
+import requests
 import sentry_sdk
 import tomli
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query
@@ -1090,20 +1091,16 @@ async def generate_local_uri(
         # Determine base URL based on server_mode
         if server_mode:
             # Get external IP address
-            import subprocess
-
             try:
-                result = subprocess.run(
-                    ["curl", "-s", "http://checkip.amazonaws.com"], capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    external_ip = result.stdout.strip()
+                response = requests.get("http://checkip.amazonaws.com", timeout=10)
+                if response.status_code == 200:
+                    external_ip = response.text.strip()
                     base_url = f"{external_ip}:{config['api']['port']}"
                 else:
-                    # Fallback to localhost if curl fails
+                    # Fallback to localhost if request fails
                     logger.warning("Failed to get external IP, falling back to localhost")
                     base_url = f"{config['api']['host']}:{config['api']['port']}".replace("localhost", "127.0.0.1")
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+            except requests.RequestException as e:
                 logger.warning(f"Failed to get external IP: {e}, falling back to localhost")
                 base_url = f"{config['api']['host']}:{config['api']['port']}".replace("localhost", "127.0.0.1")
         else:
