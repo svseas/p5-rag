@@ -2,15 +2,15 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { IconArrowRight, IconArrowLeft, IconLink } from "@tabler/icons-react";
+import { IconArrowRight, IconArrowLeft } from "@tabler/icons-react";
 
 import { NavUser } from "@/components/nav-user";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { useMorphik } from "@/contexts/morphik-context";
+import { ConnectionInput } from "@/components/ConnectionInput";
 import {
   Sidebar,
   SidebarContent,
@@ -76,30 +76,11 @@ export function BaseSidebar({
   ...props
 }: BaseSidebarProps) {
   const [mounted, setMounted] = React.useState(false);
-  const [uriInput, setUriInput] = React.useState(connectionUri || "");
-  const { apiBaseUrl, authToken } = useMorphik();
+  const { apiBaseUrl, authToken, isLocal } = useMorphik();
 
   React.useEffect(() => {
     setMounted(true);
   }, []);
-
-  React.useEffect(() => {
-    setUriInput(connectionUri || "");
-  }, [connectionUri]);
-
-  const handleUriSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (onUriChange && uriInput.trim()) {
-      const normalizeToMorphikUri = (uri: string) => {
-        if (uri.startsWith("http://") || uri.startsWith("https://")) {
-          return uri;
-        }
-        return `http://${uri}`;
-      };
-      const normalizedUri = normalizeToMorphikUri(uriInput.trim());
-      onUriChange(normalizedUri);
-    }
-  };
 
   const userData = {
     name: userProfile?.name || "Morphik User",
@@ -262,21 +243,15 @@ export function BaseSidebar({
             {showEditableUri && (
               <SidebarGroup>
                 <SidebarGroupContent className="px-2 py-1">
-                  <form onSubmit={handleUriSubmit} className="space-y-1">
-                    <div className="flex gap-1">
-                      <Input
-                        id="connection-uri"
-                        type="text"
-                        placeholder="localhost:8000"
-                        value={uriInput}
-                        onChange={e => setUriInput(e.target.value)}
-                        className="h-7 text-xs"
-                      />
-                      <Button type="submit" size="sm" variant="ghost" className="h-7 w-7 p-0">
-                        <IconLink className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </form>
+                  <ConnectionInput
+                    value={connectionUri || ""}
+                    onChange={onUriChange}
+                    onClear={() => onUriChange?.("")}
+                    placeholder="localhost:8000"
+                  />
+                  {connectionUri && isLocal && (
+                    <p className="mt-1 text-[10px] text-muted-foreground">Local connection (clears on restart)</p>
+                  )}
                 </SidebarGroupContent>
               </SidebarGroup>
             )}

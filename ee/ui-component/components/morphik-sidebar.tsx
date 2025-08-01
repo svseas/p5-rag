@@ -18,7 +18,6 @@
 import * as React from "react";
 import { BaseSidebar } from "@/components/base-sidebar";
 import { createUrlNavigation } from "@/lib/navigation-utils";
-import { normalizeToMorphikUri } from "@/lib/utils";
 
 interface MorphikSidebarProps {
   userProfile?: {
@@ -79,8 +78,8 @@ export function MorphikSidebar({
   const handleUriChange = React.useCallback(
     (newUri: string) => {
       if (onUriChange) {
-        const normalizedUri = normalizeToMorphikUri(newUri);
-        onUriChange(normalizedUri);
+        // Pass URI as-is, let the context handle parsing
+        onUriChange(newUri);
       }
     },
     [onUriChange]
