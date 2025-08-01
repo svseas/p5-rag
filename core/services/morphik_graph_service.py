@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Union
 
@@ -36,56 +35,75 @@ class MorphikGraphService:
     async def _prepare_document_content(self, doc: Document, document_service) -> str:
         """
         Prepare document content for graph processing.
-        If content is empty but storage info exists, create a parse request.
-
-        Contract with remote graph service:
-        - If document has content in system_metadata["content"], returns it as-is
-        - If content is empty BUT document has storage_info, returns a special format:
-          "__MORPHIK_PARSE_REQUEST__\n{json_metadata}"
-          where json_metadata contains:
-            - parse_required: True (indicates parsing needed)
-            - document_id: Document's external ID
-            - filename: Original filename
-            - content_type: MIME type
-            - storage_info: Dict with bucket and key
-            - download_url: Pre-signed URL for direct download (if available)
-        - Image-graph-rag should detect "__MORPHIK_PARSE_REQUEST__" prefix and:
-          1. Parse the JSON metadata
-          2. Download the file using download_url
-          3. Extract text content based on content_type
-          4. Process the extracted text for graph building
+        If content is empty but storage info exists, parse the document internally.
 
         Args:
             doc: Document object from morphik database
             document_service: DocumentService instance with storage access
 
         Returns:
-            str: Either the document's text content or a parse request in special format
+            str: The document's text content (parsed if necessary)
         """
         doc_content = doc.system_metadata.get("content", "") if doc.system_metadata else ""
 
-        # If content is empty but we have storage info, pass metadata for parsing
+        # If content is empty but we have storage info, parse the document internally
         if not doc_content.strip() and doc.storage_info:
-            # Create a structured format that image-graph-rag can parse
-            doc_metadata = {
-                "parse_required": True,
-                "document_id": doc.external_id,
-                "filename": doc.filename,
-                "content_type": doc.content_type,
-                "storage_info": doc.storage_info,
-            }
-
-            # Add download URL using document_service storage
             try:
+                logger.info(f"Document {doc.external_id} content is empty, parsing document internally...")
+
+                # Download the file from storage
                 bucket = doc.storage_info.get("bucket")
                 key = doc.storage_info.get("key")
-                if bucket and key:
-                    doc_metadata["download_url"] = await document_service.storage.get_download_url(bucket, key)
-            except Exception as e:
-                logger.warning(f"Failed to get download URL for document {doc.external_id}: {e}")
+                if not bucket or not key:
+                    logger.warning(f"Missing storage info for document {doc.external_id}: bucket={bucket}, key={key}")
+                    return ""
 
-            # Pass as JSON string that image-graph-rag can detect and parse
-            doc_content = f"__MORPHIK_PARSE_REQUEST__\n{json.dumps(doc_metadata)}"
+                file_content = await document_service.storage.download_file(bucket, key)
+
+                # Ensure file_content is bytes
+                if hasattr(file_content, "read"):
+                    file_content = file_content.read()
+
+                # Parse the file using the document service parser
+                additional_metadata, text = await document_service.parser.parse_file_to_text(file_content, doc.filename)
+
+                # Clean the extracted text to remove problematic escape characters
+                import re
+
+                text = re.sub(r"[\x00\u0000]", "", text)
+                text = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", "", text)
+
+                if text.strip():
+                    # Update the document with the parsed content
+                    logger.info(f"Successfully parsed document {doc.external_id}, content length: {len(text)}")
+
+                    # Update system_metadata with the parsed content
+                    updated_system_metadata = doc.system_metadata.copy() if doc.system_metadata else {}
+                    updated_system_metadata["content"] = text
+
+                    # Create auth context for the update (using minimal permissions needed)
+                    from core.models.auth import AuthContext, EntityType
+
+                    auth_context = AuthContext(
+                        entity_type=EntityType.DEVELOPER,
+                        entity_id="graph_service",
+                        app_id=doc.app_id,
+                        permissions={"write"},
+                        user_id="graph_service",
+                    )
+
+                    # Update the document in the database
+                    updates = {"system_metadata": updated_system_metadata}
+                    await document_service.db.update_document(doc.external_id, updates, auth_context)
+
+                    doc_content = text
+                else:
+                    logger.warning(f"Failed to extract text content from document {doc.external_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to parse document {doc.external_id}: {e}")
+                # Return empty content on parsing failure rather than raising
+                return ""
 
         return doc_content
 
