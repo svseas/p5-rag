@@ -91,23 +91,30 @@ else
 fi
 
 echo ""
-print_info "🔐 Morphik can generate secure connection URIs that allow you to connect client applications (like the Python SDK) to your local instance."
-print_info "   These URIs contain authentication tokens and can optionally use your external IP address for remote access."
-print_info "   To generate these URIs securely, you need to set a LOCAL_URI_TOKEN - this acts as a password to prevent unauthorized URI generation."
-print_info "   Without this token, anyone with access to your Morphik instance could generate connection URIs."
+print_info "🔐 Setting up authentication for your Morphik deployment:"
+print_info "   • If you plan to access Morphik from outside this server, setting a LOCAL_URI_TOKEN will secure your deployment"
+print_info "   • For local-only access, you can skip this step (dev_mode will be enabled)"
+print_info "   • With a LOCAL_URI_TOKEN set, you'll need to use /generate_local_uri endpoint for authorization tokens"
 echo ""
-read -p "Please enter a secure LOCAL_URI_TOKEN (or press Enter to generate one automatically): " local_uri_token < /dev/tty
+read -p "Please enter a secure LOCAL_URI_TOKEN (or press Enter to skip for local-only access): " local_uri_token < /dev/tty
 if [[ -z "$local_uri_token" ]]; then
-    # Generate a random token
-    local_uri_token="morphik-$(openssl rand -hex 16)"
-    print_info "Generated LOCAL_URI_TOKEN: $local_uri_token"
-    print_warning "Save this token securely - you'll need it to generate connection URIs!"
+    print_info "No LOCAL_URI_TOKEN provided - enabling development mode (dev_mode=true) for local access"
+    print_info "This is suitable for local development and testing"
+    # Enable dev_mode in morphik.toml
+    sed -i.bak 's/dev_mode = false/dev_mode = true/' morphik.toml
+    rm -f morphik.toml.bak
+else
+    print_success "LOCAL_URI_TOKEN set - keeping production mode (dev_mode=false) with authentication enabled"
+    print_info "Use the /generate_local_uri endpoint with this token to create authorized connection URIs"
 fi
 
-# Use sed to safely replace the token in the .env file.
-sed -i.bak "s|LOCAL_URI_TOKEN=|LOCAL_URI_TOKEN=$local_uri_token|" .env
-rm -f .env.bak
-print_success "'.env' file has been configured with your LOCAL_URI_TOKEN."
+# Only update .env if a token was provided
+if [[ -n "$local_uri_token" ]]; then
+    # Use sed to safely replace the token in the .env file.
+    sed -i.bak "s|LOCAL_URI_TOKEN=|LOCAL_URI_TOKEN=$local_uri_token|" .env
+    rm -f .env.bak
+    print_success "'.env' file has been configured with your LOCAL_URI_TOKEN."
+fi
 
 # 5. Download and setup configuration
 print_info "Setting up configuration file..."
