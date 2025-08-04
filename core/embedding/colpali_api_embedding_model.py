@@ -1,6 +1,8 @@
+import io
 import logging
 from typing import List, Tuple, Union
 
+import numpy as np
 from httpx import AsyncClient, Timeout  # replacing httpx.AsyncClient for clarity
 
 from core.config import get_settings
@@ -79,5 +81,21 @@ class ColpaliApiEmbeddingModel(BaseEmbeddingModel):
         async with AsyncClient(timeout=timeout) as client:
             resp = await client.post(self.endpoint, json=payload, headers=headers)
             resp.raise_for_status()
-            data = resp.json()
-        return data.get("embeddings", [])
+
+            # Load .npz from response content
+            npz_data = np.load(io.BytesIO(resp.content))
+
+            # Extract metadata
+            count = int(npz_data["count"])
+            returned_input_type = str(npz_data["input_type"])
+
+            logger.debug(f"Received {count} embeddings for input_type: {returned_input_type}")
+
+            # Extract embeddings in order
+            embeddings = []
+            for i in range(count):
+                embedding_array = npz_data[f"emb_{i}"]
+                # Convert numpy array to list of lists (MultiVector format)
+                embeddings.append(embedding_array.tolist())
+
+            return embeddings
