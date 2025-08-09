@@ -14,6 +14,7 @@ import { SettingsSection } from "@/components/settings/SettingsSection";
 import { extractTokenFromUri, getApiBaseUrlFromUri } from "@/lib/utils";
 import { PDFAPIService } from "@/components/pdf/PDFAPIService";
 import { MorphikSidebarRemote } from "@/components/sidebar-stateful";
+import { useChatContext } from "@/components/chat/chat-context";
 import { DynamicSiteHeader } from "@/components/dynamic-site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar-components";
 import { MorphikProvider } from "@/contexts/morphik-context";
@@ -203,6 +204,58 @@ const MorphikUI: React.FC<MorphikUIProps> = props => {
     }
   };
 
+  // Local wrapper to bridge ChatContext into the Sidebar props
+  const SidebarWithChatContext: React.FC<{
+    logoLight?: string;
+    logoDark?: string;
+    showChatView: boolean;
+    onChatViewChange: (show: boolean) => void;
+    showSettingsView: boolean;
+    onSettingsViewChange: (show: boolean) => void;
+    currentSection: string;
+    onSectionChange: (section: string) => void;
+    userProfile?: typeof userProfile;
+    onLogout?: typeof onLogout;
+    onProfileNavigate?: typeof onProfileNavigate;
+    onUpgradeClick?: typeof onUpgradeClick;
+  }> = ({
+    logoLight,
+    logoDark,
+    showChatView,
+    onChatViewChange,
+    showSettingsView,
+    onSettingsViewChange,
+    currentSection,
+    onSectionChange,
+    userProfile,
+    onLogout,
+    onProfileNavigate,
+    onUpgradeClick,
+  }) => {
+    const { activeChatId, setActiveChatId, activeSettingsTab, setActiveSettingsTab } = useChatContext();
+
+    return (
+      <MorphikSidebarRemote
+        currentSection={currentSection}
+        onSectionChange={onSectionChange}
+        userProfile={userProfile}
+        onLogout={onLogout}
+        onProfileNavigate={onProfileNavigate}
+        onUpgradeClick={onUpgradeClick}
+        logoLight={logoLight}
+        logoDark={logoDark}
+        showChatView={showChatView}
+        onChatViewChange={onChatViewChange}
+        activeChatId={activeChatId}
+        onChatSelect={setActiveChatId}
+        showSettingsView={showSettingsView}
+        onSettingsViewChange={onSettingsViewChange}
+        activeSettingsTab={activeSettingsTab}
+        onSettingsTabChange={setActiveSettingsTab}
+      />
+    );
+  };
+
   const contentInner = (
     <PDFAPIService sessionId={sessionId} userId={userId}>
       <div className="min-h-screen bg-sidebar">
@@ -224,7 +277,7 @@ const MorphikUI: React.FC<MorphikUIProps> = props => {
                   } as React.CSSProperties
                 }
               >
-                <MorphikSidebarRemote
+                <SidebarWithChatContext
                   currentSection={currentSection}
                   onSectionChange={handleSectionChange}
                   userProfile={userProfile}

@@ -395,8 +395,14 @@ export function BaseSidebar({
               </SidebarGroup>
               {onUpgradeClick && (userProfile?.tier === "free" || !userProfile?.tier) && (
                 <div className="mx-2 mb-2 mt-2">
-                  <Button className="w-full justify-between" variant="outline" size="default" onClick={onUpgradeClick}>
-                    <div className="flex items-center gap-2">
+                  <Button
+                    className="w-full justify-between group-data-[collapsible=icon]:justify-center"
+                    variant="outline"
+                    size="default"
+                    onClick={onUpgradeClick}
+                    title="Upgrade to PRO"
+                  >
+                    <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
                       <span>Upgrade to</span>
                       <Badge variant="secondary" className="text-xs">
                         PRO
