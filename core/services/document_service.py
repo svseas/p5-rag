@@ -3119,6 +3119,66 @@ class DocumentService:
         logger.info(f"Successfully deleted document {document_id} and all associated data")
         return True
 
+    async def extract_pdf_pages(
+        self,
+        bucket: str,
+        key: str,
+        start_page: int,
+        end_page: int,
+    ) -> Dict[str, Any]:
+        """
+        Extract specific pages from a PDF document as base64-encoded images.
+
+        Args:
+            bucket: Storage bucket containing the PDF
+            key: Storage key for the PDF file
+            start_page: Starting page number (1-indexed)
+            end_page: Ending page number (1-indexed)
+
+        Returns:
+            Dict containing:
+                - pages: List of base64-encoded images
+                - total_pages: Total number of pages in the PDF
+        """
+        try:
+            # Download the PDF file from storage
+            file_content = await self.storage.download_file(bucket, key)
+
+            # Open PDF directly from bytes using BytesIO
+            pdf_stream = BytesIO(file_content)
+            pdf_document = fitz.open(stream=pdf_stream, filetype="pdf")
+
+            total_pages = len(pdf_document)
+
+            # Validate page numbers
+            if start_page < 1 or end_page > total_pages:
+                raise ValueError(f"Page range {start_page}-{end_page} is invalid for PDF with {total_pages} pages")
+
+            # Extract pages as images
+            pages_base64 = []
+            for page_num in range(start_page - 1, end_page):  # Convert to 0-indexed
+                page = pdf_document[page_num]
+
+                # Render page as image with high DPI for quality
+                matrix = fitz.Matrix(2.0, 2.0)  # 2x scaling for better quality
+                pix = page.get_pixmap(matrix=matrix)
+
+                # Convert to PIL Image and save as JPEG for smaller size
+                img_data = pix.tobytes("jpeg", jpg_quality=85)  # Use JPEG with good quality
+                img = PILImage.open(BytesIO(img_data))
+
+                # Convert to base64
+                base64_str = self.img_to_base64_str(img)
+                pages_base64.append(base64_str)
+
+            pdf_document.close()
+
+            return {"pages": pages_base64, "total_pages": total_pages}
+
+        except Exception as e:
+            logger.error(f"Error extracting PDF pages from {bucket}/{key}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to extract PDF pages: {str(e)}")
+
     def close(self):
         """Close all resources."""
         # Close any active caches
