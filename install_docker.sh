@@ -122,7 +122,36 @@ print_info "Extracting default 'morphik.toml' for you to customize..."
 docker run --rm ghcr.io/morphik-org/morphik-core:latest \
        cat /app/morphik.toml.default > morphik.toml
 
-# 5.1 Ask about GPU availability for multimodal embeddings
+# 5.1 Ask about local inference with Lemonade (Windows only)
+if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null || [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+    echo ""
+    print_info "🍋 Detected WSL environment. Morphik supports local inference with Lemonade SDK (Windows only)."
+    print_info "   Lemonade provides high-performance local LLM inference with AMD GPU/NPU optimization."
+    print_info "   This allows you to run both embeddings and completions completely locally."
+    echo ""
+    read -p "Would you like to install Lemonade SDK for local inference? (y/N): " install_lemonade < /dev/tty
+
+    if [[ "$install_lemonade" == "y" || "$install_lemonade" == "Y" ]]; then
+        print_info "Downloading Lemonade installer..."
+
+        # Download and run the Lemonade installer
+        if curl -fsSL -o lemonade-installer.sh "$REPO_URL/lemonade-installer.sh"; then
+            chmod +x lemonade-installer.sh
+            if ./lemonade-installer.sh; then
+                LEMONADE_INSTALLED=true
+                print_success "Lemonade installation completed!"
+            else
+                print_warning "Lemonade installation failed. You can retry later by running: ./lemonade-installer.sh"
+            fi
+        else
+            print_error "Failed to download Lemonade installer"
+            print_info "You can manually install Lemonade later with:"
+            print_info "  curl -sSL https://raw.githubusercontent.com/morphik-org/morphik-core/main/lemonade-installer.sh | bash"
+        fi
+    fi
+fi
+
+# 5.2 Ask about GPU availability for multimodal embeddings
 echo ""
 print_info "🚀 Morphik achieves ultra-accurate document understanding through advanced multimodal embeddings."
 print_info "   These embeddings excel at processing images, PDFs, and complex layouts."
@@ -266,6 +295,15 @@ if [ -n "$UI_PROFILE" ]; then
 fi
 EOF
 chmod +x start-morphik.sh
+
+# Remind about Lemonade if installed
+if [ "$LEMONADE_INSTALLED" = true ]; then
+    echo ""
+    print_info "🍋 Lemonade SDK has been installed! To use local inference:"
+    print_info "   1. Start Lemonade Server by double-clicking start_lemonade.bat on your Desktop"
+    print_info "   2. Select Lemonade models in the Morphik UI settings"
+    print_info "   3. Enjoy fully local embeddings and completions!"
+fi
 
 echo ""
 print_success "🎉 Enjoy using Morphik!"
