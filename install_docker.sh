@@ -142,22 +142,66 @@ if ! docker pull ghcr.io/morphik-org/morphik-core:latest; then
 else
     print_success "Docker image is available."
     print_info "Extracting default 'morphik.toml' for you to customize..."
-    if ! docker run --rm ghcr.io/morphik-org/morphik-core:latest \
-           cat /app/morphik.toml.default > morphik.toml 2>/dev/null; then
-        print_warning "Could not extract morphik.toml from Docker image."
-        print_info "Downloading from repository instead..."
 
-        # Fallback to downloading from repo
-        if curl -fsSL -o morphik.toml "$REPO_URL/morphik.docker.toml" 2>/dev/null; then
-            print_success "Downloaded Docker-specific configuration from repository."
-        elif curl -fsSL -o morphik.toml "$REPO_URL/morphik.toml" 2>/dev/null; then
-            print_warning "Downloaded standard morphik.toml."
+    # Method 1: Try using docker run with output capture (more reliable on Windows)
+    CONFIG_CONTENT=$(docker run --rm ghcr.io/morphik-org/morphik-core:latest cat /app/morphik.toml.default 2>/dev/null)
+    if [ -n "$CONFIG_CONTENT" ]; then
+        echo "$CONFIG_CONTENT" > morphik.toml
+        if [ -f morphik.toml ] && [ -s morphik.toml ]; then
+            print_success "Extracted configuration from Docker image."
         else
-            print_error "Could not obtain configuration file."
-            exit 1
+            print_warning "Failed to write configuration file."
+            CONFIG_EXTRACTED=false
         fi
     else
-        print_success "Extracted configuration from Docker image."
+        CONFIG_EXTRACTED=false
+    fi
+
+    # Method 2: If Method 1 failed, try docker cp approach
+    if [ "$CONFIG_EXTRACTED" = "false" ] 2>/dev/null || [ ! -f morphik.toml ]; then
+        print_info "Trying alternative extraction method..."
+        TEMP_CONTAINER=$(docker create ghcr.io/morphik-org/morphik-core:latest)
+        if docker cp "$TEMP_CONTAINER:/app/morphik.toml.default" morphik.toml 2>/dev/null; then
+            docker rm "$TEMP_CONTAINER" >/dev/null 2>&1
+            print_success "Extracted configuration using docker cp."
+        else
+            docker rm "$TEMP_CONTAINER" >/dev/null 2>&1
+            print_warning "Could not extract morphik.toml from Docker image."
+        fi
+    fi
+
+    # Method 3: If still no file, download from repository
+    if [ ! -f morphik.toml ] || [ ! -s morphik.toml ]; then
+        print_info "Downloading from repository instead..."
+
+        # Try with curl first
+        print_info "Attempting to download: $REPO_URL/morphik.docker.toml"
+        if curl -fsSL "$REPO_URL/morphik.docker.toml" -o morphik.toml; then
+            if [ -f morphik.toml ] && [ -s morphik.toml ]; then
+                print_success "Downloaded Docker-specific configuration from repository."
+            else
+                rm -f morphik.toml
+                print_warning "Downloaded file was empty."
+            fi
+        fi
+
+        # If still no file, try the standard morphik.toml
+        if [ ! -f morphik.toml ] || [ ! -s morphik.toml ]; then
+            print_info "Attempting to download: $REPO_URL/morphik.toml"
+            if curl -fsSL "$REPO_URL/morphik.toml" -o morphik.toml; then
+                if [ -f morphik.toml ] && [ -s morphik.toml ]; then
+                    print_warning "Downloaded standard morphik.toml (may need Docker adjustments)."
+                else
+                    rm -f morphik.toml
+                    print_error "Could not obtain a valid configuration file."
+                    exit 1
+                fi
+            else
+                print_error "Could not download configuration file from repository."
+                print_info "Please check your internet connection and that the repository is accessible."
+                exit 1
+            fi
+        fi
     fi
 fi
 
