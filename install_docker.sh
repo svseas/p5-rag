@@ -232,7 +232,7 @@ if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null || [ -f /proc/sys/fs/b
                 print_warning "Lemonade installation failed. You can retry later by running: ./lemonade-installer.sh"
             fi
         else
-            print_error "Failed to download Lemonade installer"
+            print_warning "Failed to download Lemonade installer"
             print_info "You can manually install Lemonade later with:"
             print_info "  curl -sSL https://raw.githubusercontent.com/morphik-org/morphik-core/main/lemonade-installer.sh | bash"
         fi

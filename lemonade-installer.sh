@@ -71,9 +71,13 @@ install_lemonade() {
     print_success "Found Windows Python at: $WIN_PYTHON"
 
     # Check Python version
-    PYTHON_VERSION=$(powershell.exe -Command "& '$WIN_PYTHON' --version" 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    # Get the full version output first
+    PYTHON_VERSION_OUTPUT=$(powershell.exe -Command "& '$WIN_PYTHON' --version" 2>&1 | tr -d '\r')
+    # Extract version number (handles "Python 3.10.0" format)
+    PYTHON_VERSION=$(echo "$PYTHON_VERSION_OUTPUT" | grep -oE '3\.[0-9]+(\.[0-9]+)?' | head -1)
+
     if [ -z "$PYTHON_VERSION" ]; then
-        print_warning "Could not determine Python version"
+        print_warning "Could not determine Python version from: $PYTHON_VERSION_OUTPUT"
     else
         print_info "Python version: $PYTHON_VERSION"
         # Check if version is 3.10+
