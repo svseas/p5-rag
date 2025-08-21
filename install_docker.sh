@@ -118,9 +118,48 @@ fi
 
 # 5. Download and setup configuration
 print_info "Setting up configuration file..."
-print_info "Extracting default 'morphik.toml' for you to customize..."
-docker run --rm ghcr.io/morphik-org/morphik-core:latest \
-       cat /app/morphik.toml.default > morphik.toml
+
+# Pull the Docker image first if needed
+print_info "Pulling Docker image if not already available..."
+if ! docker pull ghcr.io/morphik-org/morphik-core:latest; then
+    print_error "Failed to pull Docker image 'ghcr.io/morphik-org/morphik-core:latest'"
+    print_info "Possible reasons:"
+    print_info "  - The image hasn't been published to GitHub Container Registry yet"
+    print_info "  - Network/firewall is blocking access to ghcr.io"
+    print_info "  - Docker daemon is not running properly"
+    print_info ""
+    print_info "Attempting to download configuration from repository instead..."
+
+    # Try to download morphik.docker.toml (Docker-specific config) first
+    if curl -fsSL -o morphik.toml "$REPO_URL/morphik.docker.toml" 2>/dev/null; then
+        print_success "Downloaded Docker-specific configuration from repository."
+    elif curl -fsSL -o morphik.toml "$REPO_URL/morphik.toml" 2>/dev/null; then
+        print_warning "Downloaded standard morphik.toml (may need adjustments for Docker)."
+    else
+        print_error "Could not download configuration file. Installation cannot continue."
+        exit 1
+    fi
+else
+    print_success "Docker image is available."
+    print_info "Extracting default 'morphik.toml' for you to customize..."
+    if ! docker run --rm ghcr.io/morphik-org/morphik-core:latest \
+           cat /app/morphik.toml.default > morphik.toml 2>/dev/null; then
+        print_warning "Could not extract morphik.toml from Docker image."
+        print_info "Downloading from repository instead..."
+
+        # Fallback to downloading from repo
+        if curl -fsSL -o morphik.toml "$REPO_URL/morphik.docker.toml" 2>/dev/null; then
+            print_success "Downloaded Docker-specific configuration from repository."
+        elif curl -fsSL -o morphik.toml "$REPO_URL/morphik.toml" 2>/dev/null; then
+            print_warning "Downloaded standard morphik.toml."
+        else
+            print_error "Could not obtain configuration file."
+            exit 1
+        fi
+    else
+        print_success "Extracted configuration from Docker image."
+    fi
+fi
 
 # 5.1 Ask about local inference with Lemonade (Windows only)
 if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null || [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
