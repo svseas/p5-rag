@@ -90,33 +90,7 @@ else
     print_success "'.env' file has been configured with your API key."
 fi
 
-echo ""
-print_info "🔐 Setting up authentication for your Morphik deployment:"
-print_info "   • If you plan to access Morphik from outside this server, setting a LOCAL_URI_TOKEN will secure your deployment"
-print_info "   • For local-only access, you can skip this step (dev_mode will be enabled)"
-print_info "   • With a LOCAL_URI_TOKEN set, you'll need to use /generate_local_uri endpoint for authorization tokens"
-echo ""
-read -p "Please enter a secure LOCAL_URI_TOKEN (or press Enter to skip for local-only access): " local_uri_token < /dev/tty
-if [[ -z "$local_uri_token" ]]; then
-    print_info "No LOCAL_URI_TOKEN provided - enabling development mode (dev_mode=true) for local access"
-    print_info "This is suitable for local development and testing"
-    # Enable dev_mode in morphik.toml
-    sed -i.bak 's/dev_mode = false/dev_mode = true/' morphik.toml
-    rm -f morphik.toml.bak
-else
-    print_success "LOCAL_URI_TOKEN set - keeping production mode (dev_mode=false) with authentication enabled"
-    print_info "Use the /generate_local_uri endpoint with this token to create authorized connection URIs"
-fi
-
-# Only update .env if a token was provided
-if [[ -n "$local_uri_token" ]]; then
-    # Use sed to safely replace the token in the .env file.
-    sed -i.bak "s|LOCAL_URI_TOKEN=|LOCAL_URI_TOKEN=$local_uri_token|" .env
-    rm -f .env.bak
-    print_success "'.env' file has been configured with your LOCAL_URI_TOKEN."
-fi
-
-# 5. Download and setup configuration
+# 5. Download and setup configuration FIRST (before trying to modify it)
 print_info "Setting up configuration file..."
 
 # Pull the Docker image first if needed
@@ -203,6 +177,37 @@ else
             fi
         fi
     fi
+fi
+
+# 5.0.5 Now that morphik.toml exists, handle LOCAL_URI_TOKEN configuration
+echo ""
+print_info "🔐 Setting up authentication for your Morphik deployment:"
+print_info "   • If you plan to access Morphik from outside this server, setting a LOCAL_URI_TOKEN will secure your deployment"
+print_info "   • For local-only access, you can skip this step (dev_mode will be enabled)"
+print_info "   • With a LOCAL_URI_TOKEN set, you'll need to use /generate_local_uri endpoint for authorization tokens"
+echo ""
+read -p "Please enter a secure LOCAL_URI_TOKEN (or press Enter to skip for local-only access): " local_uri_token < /dev/tty
+if [[ -z "$local_uri_token" ]]; then
+    print_info "No LOCAL_URI_TOKEN provided - enabling development mode (dev_mode=true) for local access"
+    print_info "This is suitable for local development and testing"
+    # Enable dev_mode in morphik.toml (now that the file exists!)
+    if [ -f morphik.toml ]; then
+        sed -i.bak 's/dev_mode = false/dev_mode = true/' morphik.toml
+        rm -f morphik.toml.bak
+    else
+        print_warning "morphik.toml not found, cannot set dev_mode"
+    fi
+else
+    print_success "LOCAL_URI_TOKEN set - keeping production mode (dev_mode=false) with authentication enabled"
+    print_info "Use the /generate_local_uri endpoint with this token to create authorized connection URIs"
+fi
+
+# Only update .env if a token was provided
+if [[ -n "$local_uri_token" ]]; then
+    # Use sed to safely replace the token in the .env file.
+    sed -i.bak "s|LOCAL_URI_TOKEN=|LOCAL_URI_TOKEN=$local_uri_token|" .env
+    rm -f .env.bak
+    print_success "'.env' file has been configured with your LOCAL_URI_TOKEN."
 fi
 
 # 5.1 Ask about local inference with Lemonade (Windows only)
