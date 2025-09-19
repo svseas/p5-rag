@@ -43,7 +43,12 @@ function Assert-Docker {
 
 function New-RandomHex($bytes) {
   $buffer = New-Object byte[] $bytes
-  [System.Security.Cryptography.RandomNumberGenerator]::Fill($buffer)
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $rng.GetBytes($buffer)
+  } finally {
+    $rng.Dispose()
+  }
   ($buffer | ForEach-Object { $_.ToString('x2') }) -join ''
 }
 
@@ -251,49 +256,49 @@ function Start-Stack($apiPort, $ui) {
   # Create convenience startup script for Windows
   $start = @(
     "Set-StrictMode -Version Latest",
-    "$ErrorActionPreference = 'Stop'",
+    "`$ErrorActionPreference = 'Stop'",
     "",
     'function Write-Info($msg) { Write-Host "[INFO]  $msg" -ForegroundColor Cyan }',
     'function Write-Warn($msg) { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }',
     "",
-    "$apiPortVar = \"$apiPort\"",
+    "`$apiPortVar = `"$apiPort`"",
     "# Read desired port from morphik.toml if available",
-    "$desired = $apiPortVar",
+    "`$desired = `$apiPortVar",
     "if (Test-Path 'morphik.toml') {",
-    "  $lines = Get-Content morphik.toml",
-    "  $inApi = $false; $p = $null",
-    "  foreach ($l in $lines) {",
-    "    if ($l -match '^\\s*\\[api\\]\\s*$') { $inApi = $true; continue }",
-    "    if ($inApi -and $l -match '^\\s*\\[') { break }",
-    "    if ($inApi -and $l -match '^\\s*port\\s*=\\s*\"?(\\\\d+)\"?') {",
-    "      $p = $Matches[1]; break } }",
-    "  if ($p) { $desired = $p }",
+    "  `$lines = Get-Content morphik.toml",
+    "  `$inApi = `$false; `$p = `$null",
+    "  foreach (`$l in `$lines) {",
+    "    if (`$l -match '^\\s*\\[api\\]\\s*`$') { `$inApi = `$true; continue }",
+    "    if (`$inApi -and `$l -match '^\\s*\\[') { break }",
+    "    if (`$inApi -and `$l -match '^\\s*port\\s*=\\s*`"?(\\d+)`"?') {",
+    "      `$p = `$Matches[1]; break } }",
+    "  if (`$p) { `$desired = `$p }",
     "}",
     "",
     "# Update port mapping in compose file if needed",
-    "$compose = Get-Content 'docker-compose.run.yml' -Raw",
-    "if ($compose -match '\"(\\\d+):(\\\d+)\"') {",
-    "  $current = $Matches[1]",
-    "  if ($current -ne $desired) {",
-    '    $compose = $compose -replace '"' + $current + ':' + $current + '"', '"' + $desired + ':' + $desired + '"'",
-    "    Set-Content 'docker-compose.run.yml' -Value $compose -Encoding UTF8 } }",
+    "`$compose = Get-Content 'docker-compose.run.yml' -Raw",
+    "if (`$compose -match '`"(\\d+):(\\d+)`"') {",
+    "  `$current = `$Matches[1]",
+    "  if (`$current -ne `$desired) {",
+    "    `$compose = `$compose -replace `"`$current:`$current`", `"`$(`$desired):`$(`$desired)`"",
+    "    Set-Content 'docker-compose.run.yml' -Value `$compose -Encoding UTF8 } }",
     "",
     "# Warn if multimodal embeddings disabled",
     "if (Test-Path 'morphik.toml') {",
-    "  $cfg = Get-Content morphik.toml -Raw",
-    "  if ($cfg -match '(?m)^enable_colpali\\s*=\\s*false') {",
+    "  `$cfg = Get-Content morphik.toml -Raw",
+    "  if (`$cfg -match '(?m)^enable_colpali\\s*=\\s*false') {",
     "    Write-Warn 'Multimodal embeddings are disabled. Enable in morphik.toml if you have a GPU.' } }",
     "",
     "# Include UI profile if installed",
-    "$ui = $false",
+    "`$ui = `$false",
     "if (Test-Path '.env') {",
-    "  $envText = Get-Content .env -Raw",
-    "  if ($envText -match 'UI_INSTALLED=true') { $ui = $true } }",
+    "  `$envText = Get-Content .env -Raw",
+    "  if (`$envText -match 'UI_INSTALLED=true') { `$ui = `$true } }",
     "",
-    "$args = @('-f','docker-compose.run.yml')",
-    "if ($ui) { $args += @('--profile','ui') }",
+    "`$args = @('-f','docker-compose.run.yml')",
+    "if (`$ui) { `$args += @('--profile','ui') }",
     "docker compose @args up -d",
-    'Write-Host ("Morphik is running on http://localhost:${desired}")'
+    "Write-Host `"Morphik is running on http://localhost:`$(`$desired)`""
   ) -join [Environment]::NewLine
   Set-Content -Path 'start-morphik.ps1' -Value $start -Encoding UTF8
 }
