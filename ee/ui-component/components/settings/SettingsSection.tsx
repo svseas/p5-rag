@@ -79,7 +79,8 @@ const PROVIDERS = [
     ],
     docsUrl: "https://lemonade-server.ai/",
     requiresApiKey: false,
-    setupInstructions: "If not installed, download Lemonade from https://lemonade-server.ai/ and run it locally. After installation, paste the port it is running on (default: 8020).",
+    setupInstructions:
+      "If not installed, download Lemonade from https://lemonade-server.ai/ and run it locally. After installation, paste the port it is running on (default: 8020).",
   },
 ];
 

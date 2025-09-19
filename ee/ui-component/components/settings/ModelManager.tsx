@@ -374,7 +374,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
     // Include providers that don't require API keys or have API keys configured
     if (provider === "lemonade") {
       // For Lemonade, check if port is configured
-      return apiKeys[provider]?.port;
+      return Boolean(apiKeys[provider]?.port);
     }
     return (
       (providerInfo && "requiresApiKey" in providerInfo && providerInfo.requiresApiKey === false) ||
@@ -399,27 +399,28 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
       // First check if Lemonade server is running via health endpoint
       try {
         const healthResponse = await fetch(healthUrl, {
-          method: 'GET',
-          signal: AbortSignal.timeout(3000) // 3 second timeout
+          method: "GET",
+          signal: AbortSignal.timeout(3000), // 3 second timeout
         });
-        
+
         if (!healthResponse.ok) {
           throw new Error("Health check failed");
         }
-      } catch (healthError) {
+      } catch {
         // Server is not running, provide guidance
         setDiscoveringModels(false);
-        
-        const downloadMessage = `Lemonade server is not running on port ${port}.\n\n` +
+
+        const downloadMessage =
+          `Lemonade server is not running on port ${port}.\n\n` +
           `Please:\n` +
           `1. Download Lemonade from https://lemonade-server.ai/\n` +
           `2. Install and start the server\n` +
           `3. Make sure it's running on port ${port}\n` +
           `4. Try discovering models again`;
-        
-        showAlert(downloadMessage, { 
+
+        showAlert(downloadMessage, {
           type: "warning",
-          duration: 8000 
+          duration: 8000,
         });
         return;
       }
@@ -508,7 +509,7 @@ export function ModelManager({ apiKeys, authToken }: ModelManagerProps) {
           </p>
         </div>
         <div className="flex gap-2">
-          {apiKeys.lemonade?.port && (
+          {Boolean(apiKeys.lemonade?.port) && (
             <Button onClick={discoverLemonadeModels} variant="outline" disabled={discoveringModels}>
               <RefreshCw className={`mr-2 h-4 w-4 ${discoveringModels ? "animate-spin" : ""}`} />
               {discoveringModels ? "Discovering..." : "Discover Lemonade Models"}
