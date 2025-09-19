@@ -80,12 +80,12 @@ function Ensure-EnvFile {
     "# Local URI token for secure URI generation (required for creating connection URIs)",
     "LOCAL_URI_TOKEN="
   ) -join [Environment]::NewLine
-  Set-Content -Path .env -Value $envContent -Encoding UTF8
+  Set-Content -Path .env -Value $envContent
 
   $openai = Read-Host "Enter your OpenAI API Key (or press Enter to skip)"
   if ($openai) {
     (Get-Content .env -Raw) -replace "OPENAI_API_KEY=", "OPENAI_API_KEY=$openai" |
-      Set-Content .env -Encoding UTF8
+      Set-Content .env
     Write-Ok "Configured OPENAI_API_KEY in .env"
   } else {
     Write-Info "No OpenAI API key provided. You can configure providers in morphik.toml later."
@@ -93,9 +93,23 @@ function Ensure-EnvFile {
 }
 
 function Try-Extract-Config {
-  Write-Step "Pulling Docker image if not available..."
+  Write-Step "Pulling Docker image (this may take several minutes)..."
+
   $pulled = $true
-  try { docker pull $IMAGE | Out-Null } catch { $pulled = $false }
+  try {
+    # Use cmd to ensure proper progress display in PowerShell
+    cmd /c "docker pull $IMAGE"
+    if ($LASTEXITCODE -eq 0) {
+      $pulled = $true
+      Write-Ok "Docker image pulled successfully."
+    } else {
+      $pulled = $false
+      Write-Err "Docker pull failed with exit code $LASTEXITCODE"
+    }
+  } catch {
+    Write-Err "Failed to pull Docker image: $($_.Exception.Message)"
+    $pulled = $false
+  }
 
   if ($pulled) {
     Write-Ok "Docker image is available. Extracting default 'morphik.toml'..."
@@ -104,7 +118,7 @@ function Try-Extract-Config {
     catch { $content = '' }
 
     if ($content) {
-      Set-Content -Path morphik.toml -Value $content -Encoding UTF8
+      Set-Content -Path morphik.toml -Value $content
       if ((Test-Path morphik.toml) -and ((Get-Item morphik.toml).Length -gt 0)) {
         Write-Ok "Extracted configuration from Docker image."
         return
@@ -155,12 +169,10 @@ function Update-DevMode-Or-Auth {
     Write-Info "No token provided - enabling development mode (dev_mode=true)."
     $content = Get-Content morphik.toml -Raw
     $content = $content -replace '(?m)^dev_mode\s*=\s*false', 'dev_mode = true'
-    Set-Content morphik.toml -Value $content -Encoding UTF8
-  } else {
+    Set-Content morphik.toml -Value $content   } else {
     Write-Ok "LOCAL_URI_TOKEN set - keeping production mode (dev_mode=false)."
     (Get-Content .env -Raw) -replace 'LOCAL_URI_TOKEN=', "LOCAL_URI_TOKEN=$token" |
-      Set-Content .env -Encoding UTF8
-  }
+      Set-Content .env   }
 }
 
 function Update-GPU-Options {
@@ -171,7 +183,7 @@ function Update-GPU-Options {
     $cfg = Get-Content morphik.toml -Raw
     $cfg = $cfg -replace '(?m)^enable_colpali\s*=\s*true', 'enable_colpali = false'
     $cfg = $cfg -replace '(?m)^use_reranker\s*=\s*.*', 'use_reranker = false'
-    Set-Content morphik.toml -Value $cfg -Encoding UTF8
+    Set-Content morphik.toml -Value $cfg
     Write-Ok "Configuration updated for CPU-only operation."
   } else {
     Write-Ok "GPU selected. Multimodal embeddings will remain enabled."
@@ -180,10 +192,10 @@ function Update-GPU-Options {
 
 function Enable-Config-Mount {
   Write-Step "Enabling configuration mounting in '$COMPOSE'..."
-  $compose = Get-Content $COMPOSE -Raw
-  $compose = $compose -replace '#\s*-\s*\./morphik.toml:/app/morphik.toml:ro',
-                               '- ./morphik.toml:/app/morphik.toml:ro'
-  Set-Content $COMPOSE -Value $compose -Encoding UTF8
+  $composeContent = Get-Content $COMPOSE -Raw
+  $composeContent = $composeContent -replace '#\s*-\s*\./morphik.toml:/app/morphik.toml:ro',
+                                 '- ./morphik.toml:/app/morphik.toml:ro'
+  [System.IO.File]::WriteAllText($COMPOSE, $composeContent, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 function Get-ApiPortFromToml {
@@ -202,9 +214,9 @@ function Get-ApiPortFromToml {
 }
 
 function Update-Port-Mapping($apiPort) {
-  $compose = Get-Content $COMPOSE -Raw
-  $compose = $compose -replace '"8000:8000"', '"{0}:{0}"' -f $apiPort
-  Set-Content $COMPOSE -Value $compose -Encoding UTF8
+  $composeContent = Get-Content $COMPOSE -Raw
+  $composeContent = $composeContent -replace '"8000:8000"', '"{0}:{0}"' -f $apiPort
+  [System.IO.File]::WriteAllText($COMPOSE, $composeContent, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 function Maybe-Install-UI($apiPort) {
@@ -223,12 +235,11 @@ function Maybe-Install-UI($apiPort) {
       if ($ok -and (Test-Path "ee/ui-component")) {
         Write-Ok "UI component downloaded successfully."
         (Get-Content .env -Raw) + [Environment]::NewLine + "UI_INSTALLED=true" |
-          Set-Content .env -Encoding UTF8
-
-        $compose = Get-Content $COMPOSE -Raw
-        $compose = $compose -replace 'NEXT_PUBLIC_API_URL=http://localhost:8000',
-                                 ('NEXT_PUBLIC_API_URL=http://localhost:{0}' -f $apiPort)
-        Set-Content $COMPOSE -Value $compose -Encoding UTF8
+          Set-Content .env
+        $composeContent = Get-Content $COMPOSE -Raw
+        $composeContent = $composeContent -replace 'NEXT_PUBLIC_API_URL=http://localhost:8000',
+                                     ('NEXT_PUBLIC_API_URL=http://localhost:{0}' -f $apiPort)
+        [System.IO.File]::WriteAllText($COMPOSE, $composeContent, (New-Object System.Text.UTF8Encoding($false)))
         return $true
       } else {
         Write-Err "Failed to download UI component. Continuing without UI."
@@ -281,7 +292,7 @@ function Start-Stack($apiPort, $ui) {
     "  `$current = `$Matches[1]",
     "  if (`$current -ne `$desired) {",
     "    `$compose = `$compose -replace `"`$current:`$current`", `"`$(`$desired):`$(`$desired)`"",
-    "    Set-Content 'docker-compose.run.yml' -Value `$compose -Encoding UTF8 } }",
+    "    Set-Content 'docker-compose.run.yml' -Value `$compose  } }",
     "",
     "# Warn if multimodal embeddings disabled",
     "if (Test-Path 'morphik.toml') {",
@@ -300,8 +311,7 @@ function Start-Stack($apiPort, $ui) {
     "docker compose @args up -d",
     "Write-Host `"Morphik is running on http://localhost:`$(`$desired)`""
   ) -join [Environment]::NewLine
-  Set-Content -Path 'start-morphik.ps1' -Value $start -Encoding UTF8
-}
+  Set-Content -Path 'start-morphik.ps1' -Value $start }
 
 # --- Main ---
 Write-Info "Checking for Docker and Docker Compose..."
