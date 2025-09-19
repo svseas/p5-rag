@@ -229,6 +229,7 @@ function Maybe-Install-UI($apiPort) {
     if ($cid) {
       $ok = $true
       try {
+        if (-not (Test-Path "ee")) { New-Item -ItemType Directory -Path "ee" | Out-Null }
         docker cp "$cid`:/app/ee/ui-component" "ee/ui-component" | Out-Null
       } catch { $ok = $false }
       try { docker rm $cid | Out-Null } catch { }
