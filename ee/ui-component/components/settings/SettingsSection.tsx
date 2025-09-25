@@ -163,7 +163,7 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
 
   const lemonadeHostMode = getNormalizedLemonadeMode(config.lemonade?.hostMode);
 
-  const resolveLemonadeHost = () =>
+  const resolveBackendLemonadeHost = () =>
     typeof config.lemonade?.host === "string" && config.lemonade.host.trim().length > 0
       ? config.lemonade.host
       : LEMONADE_HOST_OPTIONS[lemonadeHostMode].host;
@@ -179,9 +179,11 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
       return;
     }
 
-    const host = resolveLemonadeHost();
-    const lemonadeUrl = `http://${host}:${port}/api/v1`;
-    const healthUrl = `${lemonadeUrl}/health`;
+    const backendHost = resolveBackendLemonadeHost();
+    const uiHost = "localhost";
+    const lemonadeUiUrl = `http://${uiHost}:${port}/api/v1`;
+    const lemonadeBackendUrl = `http://${backendHost}:${port}/api/v1`;
+    const healthUrl = `${lemonadeUiUrl}/health`;
 
     setTestingLemonade(true);
     setLemonadeStatus(null);
@@ -206,7 +208,7 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
 
     let lemonadeModels: Array<{ id?: unknown; name?: unknown }> = [];
     try {
-      const response = await fetch(`${lemonadeUrl}/models`);
+      const response = await fetch(`${lemonadeUiUrl}/models`);
       if (!response.ok) {
         throw new Error(`Models endpoint failed with status ${response.status}`);
       }
@@ -271,7 +273,7 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
         model_name: rawName,
         config: {
           model: `openai/${rawName}`,
-          api_base: lemonadeUrl,
+          api_base: lemonadeBackendUrl,
           vision: rawName.toLowerCase().includes("vision") || rawName.toLowerCase().includes("vl"),
         },
       };
@@ -537,10 +539,22 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
                             <CardDescription>{provider.description}</CardDescription>
                           </div>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => window.open(provider.docsUrl, "_blank")}>
-                          <ExternalLink className="mr-1 h-3 w-3" />
-                          {provider.id === "lemonade" ? "Download Lemonade" : "Get API Key"}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {provider.id === "lemonade" && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleTestLemonade()}
+                              disabled={testingLemonade}
+                            >
+                              {testingLemonade && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}Test &amp; Import
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" onClick={() => window.open(provider.docsUrl, "_blank")}>
+                            <ExternalLink className="mr-1 h-3 w-3" />
+                            {provider.id === "lemonade" ? "Download Lemonade" : "Get API Key"}
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -607,26 +621,15 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
                             </Select>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => handleTestLemonade()}
-                              disabled={testingLemonade}
+                          {lemonadeStatus && (
+                            <span
+                              className={`inline-block text-sm ${
+                                lemonadeStatus.type === "success" ? "text-green-600" : "text-red-600"
+                              }`}
                             >
-                              {testingLemonade && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Test &amp; Import
-                              Models
-                            </Button>
-                            {lemonadeStatus && (
-                              <span
-                                className={`text-sm ${
-                                  lemonadeStatus.type === "success" ? "text-green-600" : "text-red-600"
-                                }`}
-                              >
-                                {lemonadeStatus.message}
-                              </span>
-                            )}
-                          </div>
+                              {lemonadeStatus.message}
+                            </span>
+                          )}
                         </div>
                       )}
 
