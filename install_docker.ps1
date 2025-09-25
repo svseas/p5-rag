@@ -292,7 +292,7 @@ function Start-Stack($apiPort, $ui) {
     "if (`$compose -match '`"(\\d+):(\\d+)`"') {",
     "  `$current = `$Matches[1]",
     "  if (`$current -ne `$desired) {",
-    "    `$compose = `$compose -replace `"`$current:`$current`", `"`$(`$desired):`$(`$desired)`"",
+    "    `$compose = `$compose -replace `"`$(`$current`):`$(`$current`)`", `"`$(`$desired`):`$(`$desired`)`"",
     "    Set-Content 'docker-compose.run.yml' -Value `$compose  } }",
     "",
     "# Warn if multimodal embeddings disabled",
