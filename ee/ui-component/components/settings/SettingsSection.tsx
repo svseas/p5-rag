@@ -183,6 +183,8 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
     const uiHost = "localhost";
     const lemonadeUiUrl = `http://${uiHost}:${port}/api/v1`;
     const lemonadeBackendUrl = `http://${backendHost}:${port}/api/v1`;
+    const directApiBase = `http://${LEMONADE_HOST_OPTIONS.direct.host}:${port}/api/v1`;
+    const dockerApiBase = `http://${LEMONADE_HOST_OPTIONS.docker.host}:${port}/api/v1`;
     const healthUrl = `${lemonadeUiUrl}/health`;
 
     setTestingLemonade(true);
@@ -275,6 +277,17 @@ export function SettingsSection({ authToken }: SettingsSectionProps) {
           model: `openai/${rawName}`,
           api_base: lemonadeBackendUrl,
           vision: rawName.toLowerCase().includes("vision") || rawName.toLowerCase().includes("vl"),
+          lemonade_metadata: {
+            host_mode: lemonadeHostMode,
+            port,
+            backend_host: backendHost,
+            ui_api_base: lemonadeUiUrl,
+            api_bases: {
+              direct: directApiBase,
+              docker: dockerApiBase,
+              selected: lemonadeBackendUrl,
+            },
+          },
         },
       };
 
