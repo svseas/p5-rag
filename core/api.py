@@ -17,6 +17,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.sessions import SessionMiddleware
 
 from core.agent import MorphikAgent
+from core.vietnamese_agent import run_vietnamese_agent
 from core.app_factory import lifespan
 from core.auth_utils import verify_token
 from core.config import get_settings
@@ -1021,8 +1022,14 @@ async def agent_query(
     if settings.MODE == "cloud" and auth.user_id:
         await check_and_increment_limits(auth, "agent", 1)
 
-    # Use the shared MorphikAgent instance; per-run state is now isolated internally
-    response = await morphik_agent.run(request.query, auth, history, request.display_mode)
+    # Use PydanticAI Vietnamese agent for better Ollama support
+    response = await run_vietnamese_agent(
+        query=request.query,
+        document_service=document_service,
+        auth=auth,
+        conversation_history=history,
+        display_mode=request.display_mode
+    )
 
     # Chat history storage
     if history_key:

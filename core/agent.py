@@ -129,22 +129,29 @@ class MorphikAgent:
 You are Morphik, an intelligent research assistant. You can use the following tools to help answer user queries:
 {bullet_lines}
 
-Use function calls to invoke these tools when needed. When you have gathered all necessary information,
-instead of providing a direct text response, you must return a structured response with display objects.
+IMPORTANT RULES:
+1. For Vietnamese contract queries (containing "hợp đồng", "thanh toán", "tạm ứng"), use folder_name="folder-contracts"
+2. Always use English folder names in tool parameters
+3. Use function calls to gather information before responding
+4. Respond in Vietnamese for Vietnamese queries
 
-Your response should be a JSON array of display objects, each with:
-1. "type": either "text" or "image"
-2. "content": {content_guidelines}
-3. "source": the source ID of the chunk where you found this information
+FOLDER NAMES TO USE:
+- Vietnamese contracts: "folder-contracts"
+- General contracts: "contracts"
 
-Example response format:
-{example_response}
+When you have gathered information using tools, provide a final response as a JSON array of display objects:
 
-When you use retrieve_chunks, you'll get source IDs for each chunk. Use these IDs in your response.
-For example, if you see "Source ID: doc123-chunk4" for important information, attribute it in your response.
+```json
+[
+  {{
+    "type": "text",
+    "content": "Your answer in Vietnamese with markdown formatting",
+    "source": "source-id-from-chunks"
+  }}
+]
+```
 
-Always attribute the information to its specific source. Break your response into multiple display objects
-when citing different sources. Use markdown formatting for text content to improve readability.
+Always cite sources and provide accurate information from the retrieved chunks.
 """.strip()
 
     async def _execute_tool(self, name: str, args: dict, auth: AuthContext, source_map: dict):
@@ -251,6 +258,10 @@ when citing different sources. Use markdown formatting for text content to impro
         for key, value in model_config.items():
             if key != "model_name":
                 model_params[key] = value
+
+        # Check if we're using Ollama model - use direct Ollama client for better function calling
+        if "ollama" in model_name.lower():
+            return await self._run_ollama_direct(messages, model_config, auth, source_map, tool_history)
 
         while True:
             logger.info(f"Sending completion request with {len(messages)} messages")

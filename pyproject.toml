@@ -70,6 +70,8 @@ dependencies = [
     "types-boto3[s3]>=1.39.1",
     "sentry-sdk[fastapi]>=2.33.0",
     "turbopuffer>=0.5.8",
+    "pydantic-ai>=1.0.0",
+    "colpali-engine>=0.3.10",
 ]
 
 [dependency-groups]

@@ -38,6 +38,7 @@ gemini_flash = { model_name = "gemini/gemini-2.5-flash-preview-05-20" } # gemini
 ollama_qwen_vision = { model_name = "ollama_chat/qwen3:8b", api_base = "http://172.18.0.1:11434", vision = false }
 
 ollama_llama_vision = { model_name = "ollama_chat/llama3.2-vision", api_base = "http://localhost:11434", vision = true }
+ollama_llama_8b = { model_name = "ollama_chat/llama3.1:8b", api_base = "http://172.18.0.1:11434", vision = false }
 ollama_qwen_1_5b = { model_name = "ollama_chat/qwen2:1.5b", api_base = "http://ollama:11434" }
 
 ollama_embedding = { model_name = "ollama/dengcao/Qwen3-Embedding-0.6B:Q8_0", api_base = "http://172.18.0.1:11434" }
@@ -63,7 +64,7 @@ multilingual_e5_large = { model_name = "intfloat/multilingual-e5-large" }
 #### Component configurations ####
 
 [agent]
-model = "ollama_qwen_vision" # Model for the agent logic
+model = "ollama_llama_8b" # Llama 3.1 8B - excellent for function calling and Vietnamese
 
 [completion]
 model = "ollama_qwen_vision" #"openai_gpt4-1-mini"  # Reference to a key in registered_models

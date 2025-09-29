@@ -1,7 +1,7 @@
 [
     {
       "name": "retrieve_chunks",
-      "description": "Retrieves the most relevant text and image chunks from the knowledge base based on semantic similarity to the query. Supports multimodal retrieval and scoping to specific folders. This tool uses vector similarity to find content fragments that best match the user's question. It should be used for initial information gathering when answering specific questions rather than for broad research. The tool returns content items including text and images with relevance scores, with higher scores indicating better matches. It will not provide analysis or synthesis of the information, only the raw relevant fragments.",
+      "description": "Retrieves the most relevant text and image chunks from the knowledge base based on semantic similarity to the query. Supports multimodal retrieval and scoping to specific folders. This tool uses vector similarity to find content fragments that best match the user's question. For Vietnamese contract queries (hợp đồng), use folder_name 'folder-contracts' to find contract documents. For general contracts, also try 'contracts' folder. This tool should be used for initial information gathering when answering specific questions rather than for broad research. The tool returns content items including text and images with relevance scores, with higher scores indicating better matches. It will not provide analysis or synthesis of the information, only the raw relevant fragments.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -25,7 +25,7 @@
           },
           "folder_name": {
             "type": ["string", "null"],
-            "description": "Optional folder name to scope the search within"
+            "description": "Optional folder name to scope the search within. For Vietnamese contracts (hợp đồng), use 'folder-contracts'. Available folders include: 'folder-contracts' (Vietnamese contracts), 'contracts' (general contracts). Always use exact English folder names even for Vietnamese queries."
           },
           "end_user_id": {
             "type": ["string", "null"],
@@ -160,7 +160,7 @@
     },
     {
       "name": "list_documents",
-      "description": "Lists accessible documents, showing their IDs and filenames. Supports filtering by metadata, pagination (skip/limit), and scoping by folder name or end-user ID.",
+      "description": "Lists accessible documents, showing their IDs and filenames. Supports filtering by metadata, pagination (skip/limit), and scoping by folder name or end-user ID. For Vietnamese contracts (hợp đồng), use folder_name 'folder-contracts' to list contract documents.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -180,7 +180,7 @@
           },
           "folder_name": {
             "type": ["string", "null"],
-            "description": "Optional folder name to scope the listing to"
+            "description": "Optional folder name to scope the listing to. For Vietnamese contracts (hợp đồng), use 'folder-contracts'. Use exact English folder names."
           },
           "end_user_id": {
             "type": ["string", "null"],
