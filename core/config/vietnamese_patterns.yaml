@@ -1,0 +1,235 @@
+# ===================================================================
+# Vietnamese Contract Query Routing & Analysis Configuration
+# ===================================================================
+# Based on proven architecture from pdf-qa-system
+# Architecture: Hybrid routing with 4-step analysis:
+# 1. Intent Classification: Fast intent detection
+# 2. Pattern Analysis: Regex + keyword matching (no LLM)
+# 3. Semantic Analysis: LLM provides deeper understanding
+# 4. Routing Logic: Python deterministic routing
+
+# -------------------------------------------------------------------
+# Section 1: Intent-Specific Query Patterns
+# Used for fast classification of query intent
+# -------------------------------------------------------------------
+intent_patterns:
+  equipment_price_lookup:
+    keywords:
+      - "thiết bị"          # equipment
+      - "đơn giá"           # unit price
+      - "giá từng"          # individual price
+      - "đắt nhất"          # most expensive
+      - "rẻ nhất"           # cheapest
+      - "bảng kê"           # itemized list
+      - "mặt hàng"          # items
+      - "hàng hóa"          # goods
+      - "chi tiết giá"      # price details
+      - "giá thiết bị"      # equipment price
+    exclude_keywords:
+      - "tổng"              # Don't match if asking for total
+      - "tổng cộng"         # Don't match if asking for sum
+    complexity: "simple"
+    base_score: 0.3
+
+  total_value_lookup:
+    keywords:
+      - "tổng giá trị"      # total value
+      - "tổng thanh toán"   # total payment
+      - "giá trị hợp đồng"  # contract value
+      - "tổng cộng"         # sum total
+      - "tổng chi phí"      # total cost
+      - "tổng tiền"         # total money
+    complexity: "simple"
+    base_score: 0.3
+
+  payment_terms_lookup:
+    keywords:
+      - "tạm ứng"           # advance payment
+      - "thanh toán trước"  # prepayment
+      - "ứng trước"         # pay in advance
+      - "tiến độ thanh toán" # payment schedule
+      - "phương thức thanh toán" # payment method
+    complexity: "simple"
+    base_score: 0.3
+
+  contract_parties_lookup:
+    keywords:
+      - "bên a"             # party A
+      - "bên b"             # party B
+      - "tên công ty"       # company name
+      - "đơn vị"            # organization
+      - "bên ký kết"        # signing party
+      - "chủ đầu tư"        # investor/owner
+      - "nhà thầu"          # contractor
+    complexity: "simple"
+    base_score: 0.2
+
+  contract_dates_lookup:
+    keywords:
+      - "ngày ký"           # signing date
+      - "ngày hiệu lực"     # effective date
+      - "thời hạn"          # duration/term
+      - "ngày hết hạn"      # expiry date
+      - "thời gian thực hiện" # execution time
+    complexity: "simple"
+    base_score: 0.2
+
+  contract_comparison:
+    keywords:
+      - "so sánh"           # compare
+      - "khác nhau"         # difference
+      - "giống nhau"        # similarity
+      - "tất cả hợp đồng"   # all contracts
+      - "từng hợp đồng"     # each contract
+    complexity: "moderate"
+    base_score: 0.6
+
+  contract_analysis:
+    keywords:
+      - "phân tích"         # analyze
+      - "đánh giá"          # evaluate
+      - "rủi ro"            # risk
+      - "điều khoản"        # clause/terms
+      - "quyền lợi"         # rights/benefits
+      - "nghĩa vụ"          # obligations
+    complexity: "complex"
+    base_score: 0.8
+
+# -------------------------------------------------------------------
+# Section 2: Scope Indicators
+# Determines if query is single doc, multi doc, or portfolio-wide
+# -------------------------------------------------------------------
+scope_indicators:
+  single_document:
+    - "trong hợp đồng"
+    - "hợp đồng số"
+    - "hợp đồng này"
+    - "hợp đồng cụ thể"
+    - "văn bản này"
+
+  multi_document:
+    - "so sánh"
+    - "các hợp đồng"
+    - "nhiều hợp đồng"
+    - "giữa các"
+    - "từng hợp đồng"
+
+  portfolio_wide:
+    - "tất cả hợp đồng"
+    - "toàn bộ hợp đồng"
+    - "danh mục hợp đồng"
+    - "tổng thể"
+    - "toàn hệ thống"
+
+# -------------------------------------------------------------------
+# Section 3: Regex Patterns for Structured Data
+# -------------------------------------------------------------------
+regex_patterns:
+  contract_id: '\b\d+/\d{4}/[A-ZĐ]+\b'  # Matches: 16/2022/HĐMB
+  monetary_value: '\d{1,3}(?:[.,]\d{3})*\s*(VND|USD|đồng)\b'
+  date_format: '\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b'
+
+# -------------------------------------------------------------------
+# Section 4: Search Term Mappings
+# Maps detected intent to Vietnamese search queries for embedding
+# -------------------------------------------------------------------
+search_term_mappings:
+  equipment_price_lookup:
+    primary: "đơn giá thiết bị hàng hóa bảng kê chi tiết"
+    secondary: "giá từng mặt hàng đơn vị tính số lượng"
+    focus: "individual equipment prices, NOT total contract value"
+
+  total_value_lookup:
+    primary: "tổng giá trị thanh toán hợp đồng"
+    secondary: "tổng chi phí tổng cộng giá trị hợp đồng"
+    focus: "total contract value, NOT individual item prices"
+
+  payment_terms_lookup:
+    primary: "tạm ứng thanh toán trước tiến độ"
+    secondary: "phương thức thanh toán điều kiện"
+    focus: "advance payment terms and payment schedule"
+
+  contract_parties_lookup:
+    primary: "bên A bên B tên công ty đơn vị"
+    secondary: "chủ đầu tư nhà thầu bên ký kết"
+    focus: "contracting parties and organization names"
+
+  contract_dates_lookup:
+    primary: "ngày ký hợp đồng ngày hiệu lực"
+    secondary: "thời hạn thời gian thực hiện"
+    focus: "contract dates and execution timeline"
+
+  contract_comparison:
+    primary: "so sánh hợp đồng tổng hợp"
+    secondary: "khác biệt giống nhau"
+    focus: "cross-contract comparison and analysis"
+
+  contract_analysis:
+    primary: "phân tích đánh giá điều khoản"
+    secondary: "rủi ro quyền lợi nghĩa vụ"
+    focus: "detailed contract analysis and assessment"
+
+# -------------------------------------------------------------------
+# Section 5: Routing Configuration
+# -------------------------------------------------------------------
+routing_defaults:
+  # Enable semantic analysis with LLM
+  enable_semantic_analysis: true
+
+  # Default scope if no indicators found
+  default_scope: "SINGLE_DOCUMENT"
+
+  # Default folder for Vietnamese contracts
+  default_folder: "folder-contracts"
+
+  # Default retrieval parameters
+  min_relevance: 0.7
+  default_k: 5
+
+# -------------------------------------------------------------------
+# Section 6: Complexity Scoring Configuration
+# -------------------------------------------------------------------
+complexity_scoring:
+  weights:
+    intent_base_weight: 1.0       # Weight of classified intent
+    pattern_adjustment: 0.2       # Keyword pattern influence
+    semantic_multiplier: 0.3      # LLM semantic score contribution
+    regex_hit_boost: 0.1          # Boost if structured data found
+
+  thresholds:
+    complex: 0.7
+    moderate: 0.4
+
+# -------------------------------------------------------------------
+# Section 7: Intent to Complexity Mapping
+# Maps each intent to [complexity_name, base_score]
+# -------------------------------------------------------------------
+intent_to_complexity_mapping:
+  equipment_price_lookup: ["simple_lookup", 0.3]
+  total_value_lookup: ["simple_lookup", 0.3]
+  payment_terms_lookup: ["simple_lookup", 0.3]
+  contract_parties_lookup: ["simple_lookup", 0.2]
+  contract_dates_lookup: ["simple_lookup", 0.2]
+  contract_comparison: ["moderate_analysis", 0.6]
+  contract_analysis: ["complex_synthesis", 0.8]
+  unknown: ["moderate_analysis", 0.5]
+
+# -------------------------------------------------------------------
+# Section 8: Model Configuration
+# -------------------------------------------------------------------
+models:
+  # Fast query analysis (intent classification + semantic analysis)
+  query_analyzer:
+    model_name: "qwen3:8b"
+    api_base: "http://172.18.0.1:11434/v1"
+    max_tokens: 500
+    temperature: 0.1
+    timeout: 10
+
+  # Main answer generation (retrieval + synthesis)
+  answer_generation:
+    model_name: "qwen3:32b"
+    api_base: "http://172.18.0.1:11434/v1"
+    max_tokens: 2000
+    temperature: 0.2
+    timeout: 30

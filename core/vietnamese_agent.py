@@ -1,14 +1,17 @@
-"""Simple Vietnamese Contract Agent using PydanticAI."""
+"""Vietnamese Contract Agent using PydanticAI with English instructions."""
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
 
+from core.agents.vietnamese_query_analyzer import create_vietnamese_query_analyzer
 from core.models.auth import AuthContext
 from core.services.document_service import DocumentService
 from core.tools.document_tools import ToolError
@@ -21,32 +24,49 @@ class MorphikDeps:
     """Dependencies for the Vietnamese contract agent."""
     document_service: DocumentService
     auth: AuthContext
+    query_analyzer: Any = None  # VietnameseQueryAnalyzer for intelligent query mapping
 
 
 # Configure Ollama model for PydanticAI
+# Using Qwen3:32b for excellent Vietnamese text handling and reliable tool calling
 ollama_model = OpenAIChatModel(
-    model_name='llama3.1:8b',
+    model_name='qwen3:32b',
     provider=OllamaProvider(base_url='http://172.18.0.1:11434/v1'),
 )
 
-# Vietnamese contract agent with Ollama Llama 3.1 8B
+# Vietnamese contract agent with Ollama Qwen3 32B - English instructions for better tool calling
 vietnamese_agent = Agent(
     ollama_model,
     deps_type=MorphikDeps,
-    instructions="""Bạn là trợ lý thông minh chuyên phân tích hợp đồng tiếng Việt.
+    instructions="""You are an expert assistant for Vietnamese contract document analysis.
 
-QUY TẮC QUAN TRỌNG:
-1. Với câu hỏi về hợp đồng tiếng Việt (chứa "hợp đồng", "thanh toán", "tạm ứng"), LUÔN sử dụng folder_name="folder-contracts"
-2. KHÔNG BAO GIỜ dùng từ tiếng Việt trong tham số công cụ - chỉ dùng tên folder tiếng Anh
-3. Sử dụng các công cụ để thu thập thông tin trước khi trả lời
-4. Trả lời bằng tiếng Việt cho câu hỏi tiếng Việt
-5. Tập trung vào nội dung cụ thể của hợp đồng, không đưa ra thông tin chung
+MANDATORY WORKFLOW - FOLLOW THESE STEPS EXACTLY:
 
-TÊN FOLDER SỬ DỤNG:
-- Hợp đồng tiếng Việt: "folder-contracts"
-- Hợp đồng chung: "contracts"
+Step 1: ALWAYS call retrieve_chunks FIRST before answering any question
+  - For Vietnamese contracts, ALWAYS use: folder_name="folder-contracts"
+  - Pass the user's original Vietnamese question as the 'query' parameter
+  - The system has an intelligent query analyzer that automatically optimizes the search
+  - DO NOT modify or rewrite the query - trust the system's query optimization
 
-Hãy tìm kiếm thông tin chính xác từ tài liệu và trả lời một cách cụ thể, dựa trên nội dung thực tế của hợp đồng."""
+Step 2: Analyze the returned chunks carefully
+  - Read ALL chunks thoroughly
+  - Extract specific numbers, dates, contract IDs, and relevant details
+  - Note which contract/document each piece of information comes from
+  - Look for patterns across multiple contracts if needed
+
+Step 3: Generate detailed Vietnamese answer
+  - Answer ONLY based on data from retrieved chunks
+  - Cite specific values, dates, and contract numbers
+  - If data for multiple contracts, list each separately
+  - If no relevant data found, clearly state in Vietnamese: "Không tìm thấy thông tin về..."
+  - NEVER guess, invent, or hallucinate information
+
+CRITICAL RULES:
+- MUST call retrieve_chunks before every answer - NO EXCEPTIONS
+- Use folder_name="folder-contracts" for ALL Vietnamese contract queries
+- Pass user's original question unchanged - query analyzer handles optimization
+- Final answer MUST be in Vietnamese (tiếng Việt)
+- Base answer ONLY on retrieved chunk content"""
 )
 
 
@@ -64,10 +84,35 @@ async def retrieve_chunks(
     Retrieves the most relevant text and image chunks from the knowledge base based on semantic similarity to the query.
 
     For Vietnamese contract queries (hợp đồng), use folder_name='folder-contracts' to find contract documents.
+
+    The query parameter should be the user's original Vietnamese question.
+    The system automatically optimizes the query for better retrieval based on intent analysis.
     """
     try:
+        # Use query analyzer if available to optimize the search query
+        optimized_query = query
+        analysis_info = ""
+
+        if ctx.deps.query_analyzer:
+            try:
+                analysis = await ctx.deps.query_analyzer.analyze(query)
+                # Use the optimized search query from analyzer
+                optimized_query = analysis.search_query
+                # Override parameters from analyzer if not explicitly provided
+                if folder_name is None:
+                    folder_name = analysis.folder_name
+                if k == 5:  # Default value
+                    k = analysis.k
+                if min_relevance == 0.7:  # Default value
+                    min_relevance = analysis.min_relevance
+
+                analysis_info = f" (Intent: {analysis.intent.value}, Focus: {analysis.search_focus})"
+                logger.info(f"Query analysis: {analysis.reasoning}")
+            except Exception as e:
+                logger.warning(f"Query analysis failed, using original query: {e}")
+
         chunks = await ctx.deps.document_service.retrieve_chunks(
-            query=query,
+            query=optimized_query,
             auth=ctx.deps.auth,
             filters=filters,
             k=k,
@@ -78,9 +123,9 @@ async def retrieve_chunks(
         )
 
         if not chunks:
-            return f"Không tìm thấy tài liệu nào phù hợp với truy vấn: {query}"
+            return f"Không tìm thấy tài liệu nào phù hợp với truy vấn: {query}{analysis_info}"
 
-        result = f"Tìm thấy {len(chunks)} đoạn văn liên quan:\n\n"
+        result = f"Tìm thấy {len(chunks)} đoạn văn liên quan{analysis_info}:\n\n"
 
         for i, chunk in enumerate(chunks, 1):
             result += f"**Đoạn {i}** (Tài liệu: {chunk.filename or 'Không tên'}, Điểm: {chunk.score:.3f}):\n"
@@ -249,7 +294,19 @@ async def run_vietnamese_agent(
         Dictionary with response, tool_history, display_objects, and sources
     """
     try:
-        deps = MorphikDeps(document_service=document_service, auth=auth)
+        # Initialize query analyzer
+        query_analyzer = None
+        try:
+            query_analyzer = create_vietnamese_query_analyzer(enable_semantic_analysis=True)
+            logger.info("Query analyzer initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize query analyzer: {e}")
+
+        deps = MorphikDeps(
+            document_service=document_service,
+            auth=auth,
+            query_analyzer=query_analyzer
+        )
         result = await vietnamese_agent.run(query, deps=deps)
 
         # PydanticAI returns result.output as a string by default
