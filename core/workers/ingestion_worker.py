@@ -17,6 +17,7 @@ from core.database.postgres_database import PostgresDatabase
 from core.embedding.colpali_api_embedding_model import ColpaliApiEmbeddingModel
 from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
 from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
+from core.embedding.sentence_transformers_embedding import SentenceTransformersEmbeddingModel
 from core.limits_utils import check_and_increment_limits, estimate_pages_by_chars
 from core.models.auth import AuthContext, EntityType
 from core.models.rules import MetadataExtractionRule
@@ -1072,8 +1073,19 @@ async def startup(ctx):
     ctx["parser"] = parser
 
     # Initialize embedding model
-    embedding_model = LiteLLMEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
-    logger.info(f"Initialized LiteLLM embedding model with model key: {settings.EMBEDDING_MODEL}")
+    # Check if this is a local sentence-transformers model that should bypass LiteLLM
+    embedding_config = settings.REGISTERED_MODELS.get(settings.EMBEDDING_MODEL, {})
+    model_path = embedding_config.get("model_path") or embedding_config.get("model_name", "")
+
+    # Use SentenceTransformersEmbeddingModel for local paths or specific models
+    if (model_path.startswith("/") or
+        "vietnamese_embedding" in settings.EMBEDDING_MODEL or
+        "sentence-transformers" in embedding_config.get("model_name", "")):
+        embedding_model = SentenceTransformersEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
+        logger.info(f"Initialized SentenceTransformers embedding model with model key: {settings.EMBEDDING_MODEL}")
+    else:
+        embedding_model = LiteLLMEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
+        logger.info(f"Initialized LiteLLM embedding model with model key: {settings.EMBEDDING_MODEL}")
     ctx["embedding_model"] = embedding_model
 
     # Skip initializing completion model and reranker since they're not needed for ingestion

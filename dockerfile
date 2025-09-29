@@ -111,12 +111,15 @@ COPY --from=builder /usr/local/share/nltk_data /usr/local/share/nltk_data
 COPY --from=builder /app/fde ./fde
 
 # Create necessary directories
-RUN mkdir -p storage logs
+RUN mkdir -p storage logs /app/models
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:/usr/local/bin:${PATH}"
+
+# Download Vietnamese embedding model
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('keepitreal/vietnamese-sbert', cache_folder='/app/models')"
 
 # Create default configuration
 COPY morphik.docker.toml /app/morphik.toml.default

@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { parseConnectionUri, ConnectionInfo, isLocalUri } from "@/lib/connection-utils";
 
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
+const DEFAULT_API_BASE_URL = "http://192.168.2.132:8000";
 const CONNECTION_URI_STORAGE_KEY = "morphik-connection-uri";
 
 interface MorphikContextType {

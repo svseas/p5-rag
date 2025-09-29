@@ -48,6 +48,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "pyzotero>=1.6.11",
     "requests>=2.32.3",
+    "sentence-transformers>=2.3.0",
     "sqlalchemy>=2.0.40",
     "stripe>=12.1.0",
     "toml>=0.10.2",

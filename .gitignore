@@ -15,6 +15,9 @@ build/
 *.egg
 *.pytest_cache/
 
+# Uploads and user data
+uploads/
+
 core/tests/output
 core/tests/assets
 

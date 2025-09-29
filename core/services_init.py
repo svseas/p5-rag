@@ -23,6 +23,7 @@ from core.database.postgres_database import PostgresDatabase
 from core.embedding.colpali_api_embedding_model import ColpaliApiEmbeddingModel
 from core.embedding.colpali_embedding_model import ColpaliEmbeddingModel
 from core.embedding.litellm_embedding import LiteLLMEmbeddingModel
+from core.embedding.sentence_transformers_embedding import SentenceTransformersEmbeddingModel
 from core.parser.morphik_parser import MorphikParser
 from core.reranker.flag_reranker import FlagReranker
 from core.services.document_service import DocumentService
@@ -91,8 +92,19 @@ parser = MorphikParser(
     settings=settings,
 )
 
-embedding_model = LiteLLMEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
-logger.info("Initialized LiteLLM embedding model with model key: %s", settings.EMBEDDING_MODEL)
+# Check if this is a local sentence-transformers model that should bypass LiteLLM
+embedding_config = settings.REGISTERED_MODELS.get(settings.EMBEDDING_MODEL, {})
+model_path = embedding_config.get("model_path") or embedding_config.get("model_name", "")
+
+# Use SentenceTransformersEmbeddingModel for local paths or specific models
+if (model_path.startswith("/") or
+    "vietnamese_embedding" in settings.EMBEDDING_MODEL or
+    "sentence-transformers" in embedding_config.get("model_name", "")):
+    embedding_model = SentenceTransformersEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
+    logger.info("Initialized SentenceTransformers embedding model with model key: %s", settings.EMBEDDING_MODEL)
+else:
+    embedding_model = LiteLLMEmbeddingModel(model_key=settings.EMBEDDING_MODEL)
+    logger.info("Initialized LiteLLM embedding model with model key: %s", settings.EMBEDDING_MODEL)
 
 completion_model = LiteLLMCompletionModel(model_key=settings.COMPLETION_MODEL)
 logger.info("Initialized LiteLLM completion model with model key: %s", settings.COMPLETION_MODEL)
