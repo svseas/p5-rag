@@ -38,58 +38,59 @@ export interface NavigationStrategy {
   currentActive?: string;
 }
 
+// Navigation keys for i18n - actual titles will be translated at render time
 export const baseMainNavItems: Omit<BaseNavItem, "type">[] = [
   {
-    title: "Documents",
+    title: "nav.documents",
     icon: IconFiles,
   },
   {
-    title: "PDF Viewer",
+    title: "nav.pdfViewer",
     icon: IconFileText,
   },
   {
-    title: "Search",
+    title: "nav.search",
     icon: IconSearch,
   },
   {
-    title: "Chat",
+    title: "nav.chat",
     icon: IconMessage,
     isSpecial: true,
   },
   {
-    title: "Knowledge Graphs",
+    title: "nav.knowledgeGraphs",
     icon: IconShare,
   },
   {
-    title: "Workflows",
+    title: "nav.workflows",
     icon: IconGitBranch,
   },
   {
-    title: "Connectors",
+    title: "nav.connectors",
     icon: IconPlugConnected,
   },
 ];
 
 export const baseSecondaryNavItems: Omit<BaseNavItem, "type">[] = [
   {
-    title: "Settings",
+    title: "nav.settings",
     icon: IconSettings,
     isSpecial: true,
   },
   {
-    title: "Logs",
+    title: "nav.logs",
     icon: IconFileAnalytics,
   },
 ];
 
 export const externalNavItems = [
   {
-    title: "Documentation",
+    title: "nav.documentation",
     url: "https://docs.morphik.ai",
     icon: IconBook,
   },
   {
-    title: "Send Feedback",
+    title: "nav.sendFeedback",
     url: "mailto:founders@morphik.ai",
     icon: IconMessageCircle,
   },

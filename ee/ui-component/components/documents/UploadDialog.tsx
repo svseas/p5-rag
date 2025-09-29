@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, ChangeEvent } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +35,8 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
   onBatchFileUpload,
   onTextUpload,
 }) => {
+  const t = useTranslations();
+
   // Component state for managing the upload form
   const [uploadType, setUploadType] = useState<"file" | "text" | "batch">("file");
   const [textContent, setTextContent] = useState("");
@@ -88,39 +91,41 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Upload Document</DialogTitle>
-          <DialogDescription>Upload a file or text to your Morphik repository.</DialogDescription>
+          <DialogTitle>{t("documents.uploadDocument")}</DialogTitle>
+          <DialogDescription>{t("documents.uploadDocumentDescription")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
           <div className="flex gap-2">
             <Button variant={uploadType === "file" ? "default" : "outline"} onClick={() => setUploadType("file")}>
-              File
+              {t("documents.file")}
             </Button>
             <Button variant={uploadType === "batch" ? "default" : "outline"} onClick={() => setUploadType("batch")}>
-              Batch Files
+              {t("documents.batchFiles")}
             </Button>
             <Button variant={uploadType === "text" ? "default" : "outline"} onClick={() => setUploadType("text")}>
-              Text
+              {t("documents.text")}
             </Button>
           </div>
 
           {uploadType === "file" ? (
             <div>
               <Label htmlFor="file" className="mb-2 block">
-                File
+                {t("documents.file")}
               </Label>
               <Input id="file" type="file" onChange={handleFileChange} />
             </div>
           ) : uploadType === "batch" ? (
             <div>
               <Label htmlFor="batchFiles" className="mb-2 block">
-                Select Multiple Files
+                {t("documents.selectFiles")}
               </Label>
               <Input id="batchFiles" type="file" multiple onChange={handleBatchFileChange} />
               {batchFilesToUpload.length > 0 && (
                 <div className="mt-2">
-                  <p className="mb-1 text-sm font-medium">{batchFilesToUpload.length} files selected:</p>
+                  <p className="mb-1 text-sm font-medium">
+                    {t("documents.filesSelected", { count: batchFilesToUpload.length })}
+                  </p>
                   <ScrollArea className="h-24 w-full rounded-md border p-2">
                     <ul className="text-xs">
                       {Array.from(batchFilesToUpload).map((file, index) => (
@@ -136,13 +141,13 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
           ) : (
             <div>
               <Label htmlFor="text" className="mb-2 block">
-                Text Content
+                {t("documents.text")}
               </Label>
               <Textarea
                 id="text"
                 value={textContent}
                 onChange={e => setTextContent(e.target.value)}
-                placeholder="Enter text content"
+                placeholder={t("documents.enterTextContent")}
                 rows={6}
               />
             </div>
@@ -150,7 +155,7 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
 
           <div>
             <Label htmlFor="metadata" className="mb-2 block">
-              Metadata (JSON)
+              {t("documents.metadata")}
             </Label>
             <Textarea
               id="metadata"
@@ -163,7 +168,7 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
 
           <div>
             <Label htmlFor="rules" className="mb-2 block">
-              Rules (JSON)
+              {t("documents.rules")}
             </Label>
             <Textarea
               id="rules"
@@ -185,14 +190,14 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
               className="cursor-pointer text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
               onClick={() => setUseColpali(!useColpali)}
             >
-              Use Colpali
+              {t("documents.useColpali")}
             </Label>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setShowUploadDialog(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={() => {
@@ -206,7 +211,7 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
             }}
             disabled={loading}
           >
-            {loading ? "Uploading..." : "Upload"}
+            {loading ? t("documents.uploading") : t("common.upload")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -14,6 +14,33 @@ from pydantic import BaseModel
 from core.config import get_settings
 from core.models.completion import CompletionRequest, CompletionResponse
 
+
+def clean_response_content(content: str) -> str:
+    """
+    Clean response content by removing internal reasoning tags and extra whitespace.
+
+    Args:
+        content: Raw completion content from the model
+
+    Returns:
+        Cleaned content ready for user display
+    """
+    if not content:
+        return content
+
+    # Remove <think>...</think> tags and their content
+    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove other common reasoning tags
+    content = re.sub(r'<reasoning>.*?</reasoning>', '', content, flags=re.DOTALL | re.IGNORECASE)
+    content = re.sub(r'<analysis>.*?</analysis>', '', content, flags=re.DOTALL | re.IGNORECASE)
+
+    # Clean up extra whitespace and newlines
+    content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)  # Replace multiple newlines with double newline
+    content = content.strip()
+
+    return content
+
 from .base_completion import BaseCompletionModel
 
 logger = logging.getLogger(__name__)
@@ -425,7 +452,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
             completion_tokens = response.get("eval_count", 0)
 
             return CompletionResponse(
-                completion=response["message"]["content"],
+                completion=clean_response_content(response["message"]["content"]),
                 usage={
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
@@ -484,7 +511,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         response = await litellm.acompletion(**model_params)
 
         return CompletionResponse(
-            completion=response.choices[0].message.content,
+            completion=clean_response_content(response.choices[0].message.content),
             usage={
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,

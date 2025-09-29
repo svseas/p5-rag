@@ -14,6 +14,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { IconArrowRight, IconArrowLeft, IconPlus } from "@tabler/icons-react";
+import { useTranslations } from "next-intl";
 
 import { NavUser } from "@/components/nav-user";
 import { Badge } from "@/components/ui/badge";
@@ -91,6 +92,7 @@ export function BaseSidebar({
   logoDark,
   ...props
 }: BaseSidebarProps) {
+  const t = useTranslations();
   const { apiBaseUrl, authToken, isLocal } = useMorphik();
   const { state, setOpen, toggleSidebar } = useSidebar();
   const router = useRouter();
@@ -198,7 +200,7 @@ export function BaseSidebar({
                     onClick={() => onChatViewChange?.(false)}
                   >
                     <IconArrowLeft className="h-4 w-4" />
-                    Back to Menu
+                    {t("nav.backToMenu")}
                   </Button>
                 )}
               </SidebarGroupContent>
@@ -243,7 +245,7 @@ export function BaseSidebar({
                     onClick={() => onSettingsViewChange?.(false)}
                   >
                     <IconArrowLeft className="h-4 w-4" />
-                    Back to Menu
+                    {t("nav.backToMenu")}
                   </Button>
                 )}
               </SidebarGroupContent>
@@ -270,7 +272,7 @@ export function BaseSidebar({
                     placeholder="localhost:8000"
                   />
                   {connectionUri && isLocal && (
-                    <p className="mt-1 text-[10px] text-muted-foreground">Local connection (clears on restart)</p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">{t("sidebar.localConnection")}</p>
                   )}
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -282,9 +284,9 @@ export function BaseSidebar({
                   {navigation.mainItems.map(item => (
                     <SidebarMenuItem key={item.title}>
                       {navigation.type === "url" && "url" in item ? (
-                        item.isSpecial && item.title === "Chat" ? (
+                        item.isSpecial && item.title === "nav.chat" ? (
                           <SidebarMenuButton
-                            tooltip={item.title}
+                            tooltip={t(item.title)}
                             onClick={() => {
                               if (pathname !== "/chat") router.push("/chat");
                               setOpen(true);
@@ -293,11 +295,11 @@ export function BaseSidebar({
                             isActive={pathname === "/chat"}
                           >
                             {item.icon && <item.icon />}
-                            <span>{item.title}</span>
+                            <span>{t(item.title)}</span>
                           </SidebarMenuButton>
-                        ) : item.isSpecial && item.title === "Settings" ? (
+                        ) : item.isSpecial && item.title === "nav.settings" ? (
                           <SidebarMenuButton
-                            tooltip={item.title}
+                            tooltip={t(item.title)}
                             onClick={() => {
                               if (pathname !== "/settings") router.push("/settings");
                               setOpen(true);
@@ -306,19 +308,19 @@ export function BaseSidebar({
                             isActive={pathname === "/settings"}
                           >
                             {item.icon && <item.icon />}
-                            <span>{item.title}</span>
+                            <span>{t(item.title)}</span>
                           </SidebarMenuButton>
                         ) : (
-                          <SidebarMenuButton tooltip={item.title} asChild>
+                          <SidebarMenuButton tooltip={t(item.title)} asChild>
                             <Link href={item.url}>
                               {item.icon && <item.icon />}
-                              <span>{item.title}</span>
+                              <span>{t(item.title)}</span>
                             </Link>
                           </SidebarMenuButton>
                         )
                       ) : (
                         <SidebarMenuButton
-                          tooltip={item.title}
+                          tooltip={t(item.title)}
                           onClick={() => navigation.onItemClick(item)}
                           isActive={
                             navigation.type === "section" && "section" in item
@@ -327,7 +329,7 @@ export function BaseSidebar({
                           }
                         >
                           {item.icon && <item.icon />}
-                          <span>{item.title}</span>
+                          <span>{t(item.title)}</span>
                         </SidebarMenuButton>
                       )}
                     </SidebarMenuItem>
@@ -343,9 +345,9 @@ export function BaseSidebar({
                     {navigation.secondaryItems.map(item => (
                       <SidebarMenuItem key={item.title}>
                         {navigation.type === "url" && "url" in item ? (
-                          item.isSpecial && item.title === "Settings" ? (
+                          item.isSpecial && item.title === "nav.settings" ? (
                             <SidebarMenuButton
-                              tooltip={item.title}
+                              tooltip={t(item.title)}
                               onClick={() => {
                                 if (pathname !== "/settings") router.push("/settings");
                                 setOpen(true);
@@ -354,19 +356,19 @@ export function BaseSidebar({
                               isActive={pathname === "/settings"}
                             >
                               {item.icon && <item.icon />}
-                              <span>{item.title}</span>
+                              <span>{t(item.title)}</span>
                             </SidebarMenuButton>
                           ) : (
-                            <SidebarMenuButton tooltip={item.title} asChild>
+                            <SidebarMenuButton tooltip={t(item.title)} asChild>
                               <Link href={item.url}>
                                 {item.icon && <item.icon />}
-                                <span>{item.title}</span>
+                                <span>{t(item.title)}</span>
                               </Link>
                             </SidebarMenuButton>
                           )
                         ) : (
                           <SidebarMenuButton
-                            tooltip={item.title}
+                            tooltip={t(item.title)}
                             onClick={() => navigation.onItemClick(item)}
                             isActive={
                               navigation.type === "section" && "section" in item
@@ -375,17 +377,17 @@ export function BaseSidebar({
                             }
                           >
                             {item.icon && <item.icon />}
-                            <span>{item.title}</span>
+                            <span>{t(item.title)}</span>
                           </SidebarMenuButton>
                         )}
                       </SidebarMenuItem>
                     ))}
                     {externalNavItems.map(item => (
                       <SidebarMenuItem key={item.title}>
-                        <SidebarMenuButton tooltip={item.title} asChild>
+                        <SidebarMenuButton tooltip={t(item.title)} asChild>
                           <a href={item.url} target="_blank" rel="noopener noreferrer">
                             {item.icon && <item.icon />}
-                            <span>{item.title}</span>
+                            <span>{t(item.title)}</span>
                           </a>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -400,12 +402,12 @@ export function BaseSidebar({
                     variant="outline"
                     size="default"
                     onClick={onUpgradeClick}
-                    title="Upgrade to PRO"
+                    title={t("sidebar.upgradeTo") + " " + t("sidebar.pro")}
                   >
                     <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-                      <span>Upgrade to</span>
+                      <span>{t("sidebar.upgradeTo")}</span>
                       <Badge variant="secondary" className="text-xs">
-                        PRO
+                        {t("sidebar.pro")}
                       </Badge>
                     </div>
                     <IconArrowRight className="h-4 w-4" />
