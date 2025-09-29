@@ -72,7 +72,8 @@ class MorphikGraphService:
                 import re
 
                 text = re.sub(r"[\x00\u0000]", "", text)
-                text = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", "", text)
+                # Remove only truly problematic control characters, preserve Unicode text for internationalization
+                text = re.sub(r"[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
 
                 if text.strip():
                     # Update the document with the parsed content

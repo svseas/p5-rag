@@ -473,11 +473,17 @@ async def process_ingestion_job(
                 additional_metadata, text = await document_service.parser.parse_file_to_text(
                     file_content, parse_filename
                 )
+                logger.info(f"TRACE: After parsing - text length: {len(text)}, sample: {repr(text[:100])}")
+
                 # Clean the extracted text to remove problematic escape characters
                 import re
 
                 text = re.sub(r"[\x00\u0000]", "", text)
-                text = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", "", text)
+                logger.info(f"TRACE: After null byte removal - text length: {len(text)}, sample: {repr(text[:100])}")
+
+                # Remove only truly problematic control characters, preserve Unicode text for internationalization
+                text = re.sub(r"[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+                logger.info(f"TRACE: After control char removal - text length: {len(text)}, sample: {repr(text[:100])}")
 
             logger.debug(
                 f"Parsed file into {'XML chunks' if xml_processing else f'text of length {len(text)}'} (filename used: {parse_filename})"
@@ -517,12 +523,14 @@ async def process_ingestion_job(
             if rules_list and not xml_processing:
                 # Apply document rules to extracted text for non-XML files
                 logger.info("Applying post-parsing rules...")
+                logger.info(f"TRACE: Before rules processing - text length: {len(text)}, sample: {repr(text[:100])}")
                 document_rule_metadata, text = await document_service.rules_processor.process_document_rules(
                     text, rules_list
                 )
                 metadata.update(document_rule_metadata)  # Merge metadata into main doc metadata
                 logger.info(f"Document metadata after post-parsing rules: {metadata}")
                 logger.info(f"Content length after post-parsing rules: {len(text)}")
+                logger.info(f"TRACE: After rules processing - text length: {len(text)}, sample: {repr(text[:100])}")
             elif rules_list and xml_processing:
                 # For XML files, we skip document-level rules processing since we have structured chunks
                 # Rules will be applied at the chunk level later in the process
@@ -609,7 +617,11 @@ async def process_ingestion_job(
                 logger.info("No text chunking needed - ColPali will create image-based chunks")
             else:
                 # Normal text chunking required
+                logger.info(f"TRACE: Before chunking - text length: {len(text)}, sample: {repr(text[:100])}")
                 parsed_chunks = await document_service.parser.split_text(text)
+                logger.info(f"TRACE: After chunking - {len(parsed_chunks)} chunks, total chars: {sum(len(c.content) for c in parsed_chunks)}")
+                if parsed_chunks:
+                    logger.info(f"TRACE: First chunk sample: {repr(parsed_chunks[0].content[:100])}")
                 if not parsed_chunks:
                     logger.warning(
                         "No text chunks extracted after parsing. Will attempt to continue "
@@ -837,6 +849,9 @@ async def process_ingestion_job(
 
             # 11. Store chunks and update document with is_update=True
             await update_document_progress(document_service, document_id, auth, 5, total_steps, "Storing chunks")
+            logger.info(f"TRACE: Before storing chunks - {len(processed_chunks)} processed chunks")
+            if processed_chunks:
+                logger.info(f"TRACE: First processed chunk sample: {repr(processed_chunks[0].content[:100])}")
             store_start = time.time()
             if using_colpali:
                 # We already stored ColPali chunks in batches; just persist doc.chunk_ids via DB update

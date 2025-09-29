@@ -34,7 +34,7 @@ services:
       - ./storage:/app/storage
       - ./logs:/app/logs
       - ./morphik.toml:/app/morphik.toml
-      - huggingface_cache:/root/.cache/huggingface
+      - ~/.cache/huggingface:/root/.cache/huggingface
       - ./core:/app/core
     depends_on:
       postgres:
@@ -67,7 +67,7 @@ services:
       - ./storage:/app/storage
       - ./logs:/app/logs
       - ./morphik.toml:/app/morphik.toml
-      - huggingface_cache:/root/.cache/huggingface
+      - ~/.cache/huggingface:/root/.cache/huggingface
       - ./core:/app/core
     depends_on:
       postgres:
@@ -140,5 +140,4 @@ networks:
 volumes:
   postgres_data:
   ollama_data:
-  huggingface_cache:
   redis_data:

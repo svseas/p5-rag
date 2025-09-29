@@ -118,8 +118,9 @@ ENV PYTHONUNBUFFERED=1
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:/usr/local/bin:${PATH}"
 
-# Download Vietnamese embedding model
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('keepitreal/vietnamese-sbert', cache_folder='/app/models')"
+# Copy pre-downloaded models from host cache (requires models to be built into image)
+# Alternative: Use volume mount for development: -v ~/.cache/huggingface:/root/.cache/huggingface
+# COPY ~/.cache/huggingface /root/.cache/huggingface
 
 # Create default configuration
 COPY morphik.docker.toml /app/morphik.toml.default

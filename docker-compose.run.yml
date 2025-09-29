@@ -24,8 +24,8 @@ services:
       - ./storage:/app/storage
       # Persist logs
       - ./logs:/app/logs
-      # Cache for HuggingFace models (e.g., rerankers)
-      - huggingface_cache:/root/.cache/huggingface
+      # Cache for HuggingFace models (e.g., rerankers) - mount host cache
+      - ~/.cache/huggingface:/root/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,7 +53,7 @@ services:
       - ./morphik.toml:/app/morphik.toml:ro
       - ./storage:/app/storage
       - ./logs:/app/logs
-      - huggingface_cache:/root/.cache/huggingface
+      - ~/.cache/huggingface:/root/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,6 +144,5 @@ volumes:
   postgres_data:
   redis_data:
   ollama_data:
-  huggingface_cache:
   ui_node_modules:
   ui_next:

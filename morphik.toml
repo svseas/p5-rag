@@ -35,12 +35,12 @@ gemini_flash = { model_name = "gemini/gemini-2.5-flash-preview-05-20" } # gemini
 # - Both in Docker: "http://ollama:11434"
 
 # ollama_qwen_vision = { model_name = "gpt-4.1" } # {model_name = "groq/meta-llama/llama-4-scout-17b-16e-instruct"} #{ model_name = "ollama_chat/qwen2.5vl:latest", api_base = "http://localhost:11434", vision = true }
-ollama_qwen_vision = { model_name = "ollama_chat/qwen3:8b", api_base = "http://172.20.0.1:11434", vision = false }
+ollama_qwen_vision = { model_name = "ollama_chat/qwen3:8b", api_base = "http://172.18.0.1:11434", vision = false }
 
 ollama_llama_vision = { model_name = "ollama_chat/llama3.2-vision", api_base = "http://localhost:11434", vision = true }
 ollama_qwen_1_5b = { model_name = "ollama_chat/qwen2:1.5b", api_base = "http://ollama:11434" }
 
-ollama_embedding = { model_name = "ollama/dengcao/Qwen3-Embedding-0.6B:Q8_0", api_base = "http://172.20.0.1:11434" }
+ollama_embedding = { model_name = "ollama/dengcao/Qwen3-Embedding-0.6B:Q8_0", api_base = "http://172.18.0.1:11434" }
 
 # Lemonade models (for AMD GPU and NPU support)
 # - Local: "http://localhost:8020/api/v1"
@@ -52,8 +52,12 @@ openai_embedding = { model_name = "text-embedding-3-small" }
 openai_embedding_large = { model_name = "text-embedding-3-large" }
 azure_embedding = { model_name = "text-embedding-ada-002", api_base = "YOUR_AZURE_URL_HERE", api_version = "2023-05-15", deployment_id = "embedding-ada-002" }
 
-# Vietnamese embedding model (local sentence-transformers)
+# Vietnamese embedding models (local sentence-transformers)
 vietnamese_embedding = { model_name = "keepitreal/vietnamese-sbert" }
+vietnamese_embedding_contracts = { model_name = "bkai-foundation-models/vietnamese-bi-encoder" }
+
+# Multilingual E5 Large - Better for legal and specialized domains
+multilingual_e5_large = { model_name = "intfloat/multilingual-e5-large" }
 
 
 #### Component configurations ####
@@ -78,7 +82,7 @@ max_retries = 3          # Number of retries for database operations
 retry_delay = 1.0        # Initial delay between retries in seconds
 
 [embedding]
-model = "vietnamese_embedding"  # Reference to registered model
+model = "vietnamese_embedding_contracts"  # Reference to registered model - optimized for Vietnamese contracts
 dimensions = 768
 similarity_metric = "cosine"
 
