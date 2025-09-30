@@ -86,18 +86,19 @@ async def retrieve_chunks(
     For Vietnamese contract queries (hợp đồng), use folder_name='folder-contracts' to find contract documents.
 
     The query parameter should be the user's original Vietnamese question.
-    The system automatically optimizes the query for better retrieval based on intent analysis.
+    The system uses vector search with the ORIGINAL query (semantic similarity handles variations).
+    Intent analysis provides instructions to guide how you answer, not what to search for.
     """
     try:
-        # Use query analyzer if available to optimize the search query
-        optimized_query = query
+        # Use query analyzer to get intent-based instructions (NOT query rewriting)
+        instruction_context = None
         analysis_info = ""
 
         if ctx.deps.query_analyzer:
             try:
                 analysis = await ctx.deps.query_analyzer.analyze(query)
-                # Use the optimized search query from analyzer
-                optimized_query = analysis.search_query
+                # Get instruction context to guide the answer (NOT the search query)
+                instruction_context = analysis.instruction_context
                 # Override parameters from analyzer if not explicitly provided
                 if folder_name is None:
                     folder_name = analysis.folder_name
@@ -106,13 +107,14 @@ async def retrieve_chunks(
                 if min_relevance == 0.7:  # Default value
                     min_relevance = analysis.min_relevance
 
-                analysis_info = f" (Intent: {analysis.intent.value}, Focus: {analysis.search_focus})"
+                analysis_info = f" (Intent: {analysis.intent.value})"
                 logger.info(f"Query analysis: {analysis.reasoning}")
             except Exception as e:
-                logger.warning(f"Query analysis failed, using original query: {e}")
+                logger.warning(f"Query analysis failed: {e}")
 
+        # Use ORIGINAL query for vector search (semantic similarity handles variations)
         chunks = await ctx.deps.document_service.retrieve_chunks(
-            query=optimized_query,
+            query=query,  # Original query, not rewritten
             auth=ctx.deps.auth,
             filters=filters,
             k=k,
@@ -130,6 +132,10 @@ async def retrieve_chunks(
         for i, chunk in enumerate(chunks, 1):
             result += f"**Đoạn {i}** (Tài liệu: {chunk.filename or 'Không tên'}, Điểm: {chunk.score:.3f}):\n"
             result += f"{chunk.content}\n\n"
+
+        # Add instruction context to guide the agent's answer
+        if instruction_context:
+            result += f"\n**Instructions for answering:**\n{instruction_context}\n"
 
         return result
 

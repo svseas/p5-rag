@@ -130,44 +130,47 @@ regex_patterns:
   date_format: '\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b'
 
 # -------------------------------------------------------------------
-# Section 4: Search Term Mappings
-# Maps detected intent to Vietnamese search queries for embedding
+# Section 4: Intent Instructions
+# Abstract, concept-focused instructions for the LLM agent
+# These guide HOW to answer, not WHAT to search for
 # -------------------------------------------------------------------
-search_term_mappings:
-  equipment_price_lookup:
-    primary: "đơn giá thiết bị hàng hóa bảng kê chi tiết"
-    secondary: "giá từng mặt hàng đơn vị tính số lượng"
-    focus: "individual equipment prices, NOT total contract value"
+intent_instructions:
+  equipment_price_lookup: |
+    Extract the price for the SPECIFIC equipment or item mentioned in the user's query.
+    Return the unit price (đơn giá) or line-item total for that equipment only.
+    If multiple items are listed, provide them in a table or list format.
+    IGNORE the overall contract total value.
 
-  total_value_lookup:
-    primary: "tổng giá trị thanh toán hợp đồng"
-    secondary: "tổng chi phí tổng cộng giá trị hợp đồng"
-    focus: "total contract value, NOT individual item prices"
+  total_value_lookup: |
+    Extract the FINAL, TOTAL contract value that must be paid.
+    This is the sum after all items, taxes, and fees are included.
+    Look for the final payment amount or grand total.
+    IGNORE individual item prices or pre-tax subtotals.
 
-  payment_terms_lookup:
-    primary: "tạm ứng thanh toán trước tiến độ"
-    secondary: "phương thức thanh toán điều kiện"
-    focus: "advance payment terms and payment schedule"
+  payment_terms_lookup: |
+    Extract information about payment terms, schedule, or conditions.
+    Include advance payments (tạm ứng), payment milestones, and payment methods.
+    Provide the payment breakdown if available (e.g., 30% upfront, 70% on completion).
 
-  contract_parties_lookup:
-    primary: "bên A bên B tên công ty đơn vị"
-    secondary: "chủ đầu tư nhà thầu bên ký kết"
-    focus: "contracting parties and organization names"
+  contract_parties_lookup: |
+    Identify the contracting parties (Bên A, Bên B).
+    Include company names, addresses, and representative names if available.
+    Distinguish between the buyer/client and the seller/contractor.
 
-  contract_dates_lookup:
-    primary: "ngày ký hợp đồng ngày hiệu lực"
-    secondary: "thời hạn thời gian thực hiện"
-    focus: "contract dates and execution timeline"
+  contract_dates_lookup: |
+    Extract relevant dates from the contract.
+    Include signing date, effective date, completion date, and any other time-related information.
+    Provide dates in the format they appear in the contract.
 
-  contract_comparison:
-    primary: "so sánh hợp đồng tổng hợp"
-    secondary: "khác biệt giống nhau"
-    focus: "cross-contract comparison and analysis"
+  contract_comparison: |
+    Compare information across multiple contracts.
+    Identify similarities and differences in the aspects mentioned by the user.
+    Present the comparison in a clear, structured format (e.g., table or bullet points).
 
-  contract_analysis:
-    primary: "phân tích đánh giá điều khoản"
-    secondary: "rủi ro quyền lợi nghĩa vụ"
-    focus: "detailed contract analysis and assessment"
+  contract_analysis: |
+    Provide a detailed analysis of the contract aspects mentioned in the query.
+    Evaluate terms, conditions, risks, obligations, or rights as requested.
+    Base your analysis solely on the information present in the retrieved contract text.
 
 # -------------------------------------------------------------------
 # Section 5: Routing Configuration

@@ -73,8 +73,7 @@ class QueryAnalysisResult(BaseModel):
     scope: QueryScope = Field(description="Query scope")
     complexity: QueryComplexity = Field(description="Query complexity")
     complexity_score: float = Field(ge=0.0, le=1.0, description="Final complexity score")
-    search_query: str = Field(description="Vietnamese search query for embedding")
-    search_focus: str = Field(description="Focus description for retrieval")
+    instruction_context: str = Field(description="Abstract instructions for the LLM on how to answer based on intent")
     folder_name: str = Field(description="Folder to search in")
     k: int = Field(description="Number of chunks to retrieve")
     min_relevance: float = Field(description="Minimum relevance score")
@@ -93,7 +92,7 @@ class VietnameseQueryAnalyzer:
         """Load patterns and configure analyzer."""
         self.patterns = self._load_patterns()
         self.routing_config = self.patterns.get("routing_defaults", {})
-        self.search_mappings = self.patterns.get("search_term_mappings", {})
+        self.intent_instructions = self.patterns.get("intent_instructions", {})
         self.intent_patterns = self.patterns.get("intent_patterns", {})
         self.complexity_config = self.patterns.get("complexity_scoring", {})
 
@@ -281,10 +280,11 @@ Provide semantic complexity score (0.0=simple lookup, 1.0=complex synthesis)."""
             intent, pattern_confidence, pattern_hints, semantic_analysis
         )
 
-        # Get search query mapping for this intent
-        search_mapping = self.search_mappings.get(intent.value, {})
-        search_query = search_mapping.get("primary", query)
-        search_focus = search_mapping.get("focus", "general contract information")
+        # Get instruction context for this intent
+        instruction_context = self.intent_instructions.get(
+            intent.value,
+            "Extract relevant information from the contract to answer the user's query."
+        )
 
         # Get routing defaults
         folder_name = self.routing_config.get("default_folder", "folder-contracts")
@@ -311,8 +311,7 @@ Provide semantic complexity score (0.0=simple lookup, 1.0=complex synthesis)."""
             scope=scope,
             complexity=complexity,
             complexity_score=complexity_score,
-            search_query=search_query,
-            search_focus=search_focus,
+            instruction_context=instruction_context,
             folder_name=folder_name,
             k=k,
             min_relevance=min_relevance,
