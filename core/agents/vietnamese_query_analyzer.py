@@ -133,10 +133,10 @@ Provide semantic complexity score (0.0=simple lookup, 1.0=complex synthesis)."""
 
         agent = Agent(
             model,
-            result_type=QuerySemanticAnalysis,
+            output_type=QuerySemanticAnalysis,
             system_prompt=system_prompt,
             model_settings={
-                "max_tokens": model_config.get("max_tokens", 500),
+                "max_tokens": model_config.get("max_tokens", 4000),
                 "temperature": model_config.get("temperature", 0.1),
                 "timeout": model_config.get("timeout", 10),
             }
