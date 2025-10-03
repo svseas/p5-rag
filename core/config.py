@@ -85,7 +85,15 @@ class Settings(BaseSettings):
     USE_UNSTRUCTURED_API: bool
     FRAME_SAMPLE_RATE: Optional[int] = None
     USE_CONTEXTUAL_CHUNKING: bool = False
+    USE_SEMANTIC_CHUNKING: bool = False
+    SEMANTIC_EMBEDDING_MODEL: Optional[str] = None
+    SEMANTIC_THRESHOLD: float = 0.7
     PARSER_XML: ParserXMLSettings = ParserXMLSettings()
+
+    # Marker parser configuration (vision-based PDF parsing)
+    USE_MARKER: bool = False
+    MARKER_OUTPUT_FORMAT: str = "markdown"
+    MARKER_LLM_MODEL: Optional[str] = None
 
     # Rules configuration
     RULES_PROVIDER: Literal["litellm"] = "litellm"
@@ -260,6 +268,12 @@ def get_settings() -> Settings:
             "CHUNK_OVERLAP": config["parser"]["chunk_overlap"],
             "USE_UNSTRUCTURED_API": config["parser"]["use_unstructured_api"],
             "USE_CONTEXTUAL_CHUNKING": config["parser"].get("use_contextual_chunking", False),
+            "USE_SEMANTIC_CHUNKING": config["parser"].get("use_semantic_chunking", False),
+            "SEMANTIC_EMBEDDING_MODEL": config["parser"].get("semantic_embedding_model"),
+            "SEMANTIC_THRESHOLD": config["parser"].get("semantic_threshold", 0.7),
+            "USE_MARKER": config["parser"].get("use_marker", False),
+            "MARKER_OUTPUT_FORMAT": config["parser"].get("marker_output_format", "markdown"),
+            "MARKER_LLM_MODEL": config["parser"].get("marker_llm_model"),
         }
     )
 

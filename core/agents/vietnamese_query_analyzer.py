@@ -17,11 +17,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai.providers.openai import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +110,15 @@ class VietnameseQueryAnalyzer:
             return yaml.safe_load(f)
 
     def _create_semantic_agent(self, model_config: Dict[str, Any]) -> Agent:
-        """Create PydanticAI agent for semantic analysis."""
+        """Create PydanticAI agent for semantic analysis using vLLM."""
+        vllm_client = httpx.AsyncClient(timeout=600.0)  # 10 minute timeout
         model = OpenAIChatModel(
-            model_name=model_config.get("model_name", "qwen3:8b"),
-            provider=OllamaProvider(base_url=model_config.get("api_base", "http://172.18.0.1:11434/v1"))
+            model_name='/models/gemma-3-12b-it',
+            provider=OpenAIProvider(
+                base_url='http://vllm:8080/v1',
+                api_key='dummy',
+                http_client=vllm_client
+            )
         )
 
         system_prompt = """You are a Vietnamese contract query analysis expert.
@@ -290,6 +296,11 @@ Provide semantic complexity score (0.0=simple lookup, 1.0=complex synthesis)."""
         folder_name = self.routing_config.get("default_folder", "folder-contracts")
         k = self.routing_config.get("default_k", 5)
         min_relevance = self.routing_config.get("min_relevance", 0.7)
+
+        # Apply intent-specific k overrides if available
+        intent_k_overrides = self.routing_config.get("intent_k_overrides", {})
+        if intent.value in intent_k_overrides:
+            k = intent_k_overrides[intent.value]
 
         # Determine analysis method
         if pattern_confidence >= 0.8:

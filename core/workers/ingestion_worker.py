@@ -1076,6 +1076,14 @@ async def startup(ctx):
     ctx["storage"] = storage
 
     # Initialize parser
+    # Get Marker LLM configuration if enabled
+    marker_llm_api_base = None
+    marker_llm_api_key = None
+    if settings.USE_MARKER and settings.MARKER_LLM_MODEL:
+        marker_config = settings.REGISTERED_MODELS.get(settings.MARKER_LLM_MODEL, {})
+        marker_llm_api_base = marker_config.get("api_base")
+        marker_llm_api_key = marker_config.get("api_key")
+
     parser = MorphikParser(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
@@ -1084,6 +1092,11 @@ async def startup(ctx):
         assemblyai_api_key=settings.ASSEMBLYAI_API_KEY,
         anthropic_api_key=settings.ANTHROPIC_API_KEY,
         use_contextual_chunking=settings.USE_CONTEXTUAL_CHUNKING,
+        use_marker=settings.USE_MARKER,
+        marker_output_format=settings.MARKER_OUTPUT_FORMAT,
+        marker_llm_model=settings.MARKER_LLM_MODEL,
+        marker_llm_api_base=marker_llm_api_base,
+        marker_llm_api_key=marker_llm_api_key,
     )
     ctx["parser"] = parser
 

@@ -136,10 +136,20 @@ regex_patterns:
 # -------------------------------------------------------------------
 intent_instructions:
   equipment_price_lookup: |
-    Extract the price for the SPECIFIC equipment or item mentioned in the user's query.
-    Return the unit price (đơn giá) or line-item total for that equipment only.
-    If multiple items are listed, provide them in a table or list format.
-    IGNORE the overall contract total value.
+    Extract equipment/item prices from the retrieved contract chunks.
+
+    If user asks for SPECIFIC equipment (by name):
+      - Return the unit price (đơn giá) and total for that specific item only
+
+    If user asks for RANKING/COMPARISON (most expensive, cheapest, top N):
+      - Extract ALL equipment items with their unit prices from the chunks
+      - RANK them by price (highest to lowest for "đắt nhất", lowest to highest for "rẻ nhất")
+      - Return the top items in a table with: Name, Unit Price (Đơn giá), Quantity, Total
+
+    IMPORTANT:
+    - Base answer ONLY on equipment/prices found in the retrieved chunks
+    - IGNORE the overall contract total value
+    - Do NOT invent or hallucinate equipment names or prices
 
   total_value_lookup: |
     Extract the FINAL, TOTAL contract value that must be paid.
@@ -188,6 +198,12 @@ routing_defaults:
   # Default retrieval parameters
   min_relevance: 0.7
   default_k: 5
+
+  # Intent-specific k overrides (for better recall on complex queries)
+  intent_k_overrides:
+    equipment_price_lookup: 20  # Retrieve more chunks for ranking/comparison queries
+    contract_comparison: 15     # Need multiple contracts
+    contract_analysis: 15       # Need comprehensive coverage
 
 # -------------------------------------------------------------------
 # Section 6: Complexity Scoring Configuration

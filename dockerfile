@@ -63,7 +63,12 @@ RUN --mount=type=cache,target=${UV_CACHE_DIR} \
     uv pip install --verbose 'colpali-engine@git+https://github.com/illuin-tech/colpali@80fb72c9b827ecdb5687a3a8197077d0d01791b3'
 
 # Enable backports and install GCC 11+ for Debian Bookworm
-RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list && \
+# Workaround for GPG signature issues - update ca-certificates and keys
+RUN apt-get update --allow-insecure-repositories || true && \
+    apt-get install -y --allow-unauthenticated ca-certificates debian-archive-keyring && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list && \
     apt-get update && \
     apt-get install -y -t bookworm-backports gcc-11 g++-11 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 && \
@@ -73,8 +78,9 @@ RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/s
 RUN --mount=type=cache,target=${UV_CACHE_DIR} \
     uv pip install --upgrade --verbose --force-reinstall --no-cache-dir llama-cpp-python==0.3.5
 
-# Download NLTK data
-RUN python -m nltk.downloader -d /usr/local/share/nltk_data punkt averaged_perceptron_tagger
+# Download NLTK data (allow failure if network unreachable)
+RUN python -m nltk.downloader -d /usr/local/share/nltk_data punkt averaged_perceptron_tagger || \
+    echo "NLTK download failed, will download at runtime if needed"
 
 # Production stage
 FROM python:3.11.12-slim

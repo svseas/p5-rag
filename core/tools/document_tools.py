@@ -22,7 +22,7 @@ async def retrieve_chunks(
     k: int = 5,
     filters: Optional[Dict[str, Any]] = None,
     min_relevance: float = 0.7,
-    use_colpali: bool = True,
+    use_colpali: bool = False,
     folder_name: Optional[str] = None,
     end_user_id: Optional[str] = None,
     document_service: DocumentService = None,
@@ -104,10 +104,9 @@ async def retrieve_chunks(
                     }
                 )
             else:
-                # Add text content with metadata
-                text = f"Document: {chunk.filename or 'Unnamed'} (Score: {chunk.score:.2f})\n"
-                text += f"When referencing this content, cite source: {source_id}\n\n"
-                text += chunk.content
+                # Add text content with minimal metadata - content first, source attribution after
+                # This reduces noise and helps model focus on actual content
+                text = f"{chunk.content}\n\n[Source: {chunk.filename or 'Unnamed'}]"
 
                 chunk_content.append(
                     {

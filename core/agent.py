@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import re
 
+import httpx
 from dotenv import load_dotenv
 from litellm import acompletion
 from litellm.exceptions import ContextWindowExceededError
@@ -124,16 +126,34 @@ class MorphikAgent:
 
         bullet_lines = "\n".join(bullet_parts)
 
-        # System prompt
-        self.system_prompt = f"""
-You are Morphik, an intelligent research assistant. You can use the following tools to help answer user queries:
+        # Store bullet_lines for use in template formatting
+        self.bullet_lines = bullet_lines
+
+        # System prompt template (will be formatted with query and bullet_lines at runtime)
+        self.system_prompt_template = """
+You are Morphik, an intelligent research assistant. Your role is to answer the following query: {query}
+
+**ALWAYS RESPOND IN VIETNAMESE FOR VIETNAMESE QUERIES.**
+
+**CRITICAL GROUNDING RULE**:
+- ONLY answer based on information retrieved from tools (retrieve_chunks, retrieve_document, etc.)
+- DO NOT use your own knowledge or make assumptions
+- If the retrieved information doesn't contain the answer, say "Không tìm thấy thông tin" (Information not found)
+- NEVER hallucinate or invent information not present in the tool results
+- When you receive retrieved information, use ONLY that information to answer the query
+
+You can use the following tools to help answer user queries:
 {bullet_lines}
+
+TOOL SELECTION GUIDE:
+- **PRIMARY TOOL**: Use retrieve_chunks for almost ALL queries including: prices, equipment, specifications, factual data, lists, "what/which/how much/liệt kê/thiết bị/giá" queries
+- Use knowledge_graph_query ONLY for: complex relationships, networks, "who works with whom", multi-entity connections
+- ONLY call list_graphs before knowledge_graph_query IF you need to query graphs (not for document/chunk retrieval)
 
 IMPORTANT RULES:
 1. For Vietnamese contract queries (containing "hợp đồng", "thanh toán", "tạm ứng"), use folder_name="folder-contracts"
 2. Always use English folder names in tool parameters
 3. Use function calls to gather information before responding
-4. Respond in Vietnamese for Vietnamese queries
 
 FOLDER NAMES TO USE:
 - Vietnamese contracts: "folder-contracts"
@@ -145,13 +165,13 @@ When you have gathered information using tools, provide a final response as a JS
 [
   {{
     "type": "text",
-    "content": "Your answer in Vietnamese with markdown formatting",
+    "content": "Your answer in Vietnamese with markdown formatting, STRICTLY based on the retrieved information",
     "source": "source-id-from-chunks"
   }}
 ]
 ```
 
-Always cite sources and provide accurate information from the retrieved chunks.
+Always cite sources and provide accurate information STRICTLY from the retrieved chunks.
 """.strip()
 
     async def _execute_tool(self, name: str, args: dict, auth: AuthContext, source_map: dict):
@@ -213,14 +233,195 @@ Always cite sources and provide accurate information from the retrieved chunks.
             case _:
                 raise ValueError(f"Unknown tool: {name}")
 
+    async def _run_ollama_direct(
+        self,
+        messages: list,
+        model_config: dict,
+        auth: AuthContext,
+        source_map: dict,
+        tool_history: list,
+        display_mode: str = "formatted",
+    ) -> dict:
+        """Direct Ollama API integration bypassing LiteLLM for reliable tool calling"""
+
+        # Extract Ollama configuration
+        api_base = model_config.get("api_base")
+        model_name_full = model_config.get("model_name")
+
+        # Parse base model name: "qwen3:32b" from "ollama_chat/qwen3:32b"
+        match = re.search(r"[^/]+$", model_name_full)
+        base_model_name = match.group(0) if match else model_name_full
+
+        logger.info(f"Using direct Ollama API: {api_base}, model: {base_model_name}")
+
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            while True:
+                # Prepare Ollama request
+                ollama_request = {
+                    "model": base_model_name,
+                    "messages": messages,
+                    "tools": self.tool_definitions,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.0,  # Force deterministic grounding to retrieved data
+                        "num_ctx": 16384,  # 16k context window - balance between quality and speed
+                    },
+                }
+
+                logger.info(f"Ollama direct: Sending request with {len(messages)} messages")
+                # Log each message for debugging
+                for i, msg in enumerate(messages):
+                    role = msg.get('role', 'unknown')
+                    content = str(msg.get('content', ''))
+                    content_preview = content[:300]
+                    logger.info(f"Message {i}: role={role}, length={len(content)}, preview: {content_preview}")
+                    if i == 3:  # Log full message 3 (retrieved info)
+                        logger.info(f"FULL Message 3 content: {content[:2000]}")
+
+                # Call Ollama native /api/chat
+                response = await client.post(f"{api_base}/api/chat", json=ollama_request)
+                response.raise_for_status()
+                result = response.json()
+
+                message = result["message"]
+                logger.info(f"Ollama response: {_truncate_for_log(message)}")
+
+                # Check for tool calls
+                tool_calls = message.get("tool_calls")
+                if not tool_calls:
+                    # Final response - parse display objects and return
+                    logger.info("Ollama: No tool calls detected, returning final response")
+
+                    # Parse display objects (same logic as LiteLLM path)
+                    display_objects = []
+                    content = message.get("content", "")
+
+                    try:
+                        from core.utils.agent_helpers import parse_json
+
+                        content_to_parse = content.strip()
+
+                        # Check if wrapped in markdown code blocks
+                        if content_to_parse.startswith("```json") and content_to_parse.endswith("```"):
+                            content_to_parse = parse_json(content_to_parse)
+                        elif content_to_parse.startswith("```") and content_to_parse.endswith("```"):
+                            lines = content_to_parse.split("\n")
+                            if len(lines) > 2:
+                                content_to_parse = "\n".join(lines[1:-1])
+
+                        # Try to parse as JSON
+                        try:
+                            parsed_content = json.loads(content_to_parse)
+                            if isinstance(parsed_content, list):
+                                for item in parsed_content:
+                                    if isinstance(item, dict) and "type" in item and "content" in item:
+                                        display_obj = extract_display_object(item, source_map)
+                                        if not display_obj.get("invalid"):
+                                            display_objects.append(display_obj)
+                        except json.JSONDecodeError:
+                            pass  # Not JSON, use raw content
+
+                    except Exception as e:
+                        logger.warning(f"Error parsing display objects: {e}")
+
+                    # Build sources list
+                    sources = []
+                    seen_source_ids = set()
+                    for obj in display_objects:
+                        if "source" in obj and obj["source"] not in seen_source_ids:
+                            seen_source_ids.add(obj["source"])
+
+                    for source_id, source_info in source_map.items():
+                        if source_id not in seen_source_ids:
+                            sources.append(
+                                {
+                                    "sourceId": source_id,
+                                    "documentName": source_info.get("document_name", "Unknown Document"),
+                                    "documentId": source_info.get("document_id", "unknown"),
+                                }
+                            )
+
+                    if display_mode == "formatted":
+                        display_objects = crop_images_in_display_objects(display_objects)
+
+                    # Generate response text
+                    response_text = content
+                    if display_objects:
+                        text_contents = []
+                        for obj in display_objects:
+                            if obj.get("type") == "text" and obj.get("content"):
+                                text_contents.append(obj["content"])
+                        if text_contents:
+                            response_text = "\n\n".join(text_contents)
+
+                    return {
+                        "response": response_text,
+                        "tool_history": tool_history,
+                        "display_objects": display_objects,
+                        "sources": sources,
+                    }
+
+                # Execute tools
+                logger.info(f"Ollama: {len(tool_calls)} tool calls detected")
+
+                # Add assistant message to conversation
+                messages.append(
+                    {"role": "assistant", "content": message.get("content", ""), "tool_calls": tool_calls}
+                )
+
+                # Execute each tool
+                for tool_call in tool_calls:
+                    func = tool_call["function"]
+                    name = func["name"]
+                    args = func.get("arguments", {})
+
+                    logger.info(f"Ollama: Executing tool {name} with args: {_truncate_for_log(args)}")
+
+                    # Use existing tool execution logic
+                    tool_result = await self._execute_tool(name, args, auth, source_map)
+
+                    logger.info(f"Ollama: Tool {name} result: {_truncate_for_log(tool_result)}")
+
+                    # Add to history
+                    tool_history.append({"tool_name": name, "tool_args": args, "tool_result": tool_result})
+
+                    # Add tool result to conversation (Ollama format - simple content, no tool_call_id)
+                    # Extract text from structured content for better model comprehension
+                    if isinstance(tool_result, list):
+                        # Extract text from list of dicts with 'type' and 'text' fields
+                        text_parts = []
+                        for item in tool_result:
+                            if isinstance(item, dict) and item.get('type') == 'text':
+                                text_parts.append(item.get('text', ''))
+                        tool_content = '\n\n'.join(text_parts) if text_parts else json.dumps(tool_result)
+                    elif isinstance(tool_result, str):
+                        tool_content = tool_result
+                    else:
+                        tool_content = json.dumps(tool_result)
+
+                    logger.info(f"Ollama: Tool content sent to model (first 500 chars): {tool_content[:500]}")
+
+                    # Use "user" role instead of "tool" for better grounding
+                    # Extract the original query from messages[1] to repeat it explicitly
+                    original_query = messages[1].get("content", "the query") if len(messages) > 1 else "the query"
+                    user_message = f"RETRIEVED INFORMATION:\n\n{tool_content}\n\nNow answer this query: '{original_query}' using ONLY the retrieved information above. Do not use your own knowledge."
+                    logger.info(f"Ollama: Appending USER role message (first 100 chars): {user_message[:100]}")
+                    messages.append({"role": "user", "content": user_message})
+
+                logger.info("Ollama: All tools executed, continuing conversation...")
+
     async def run(
         self, query: str, auth: AuthContext, conversation_history: list = None, display_mode: str = "formatted"
     ) -> str:
         """Synchronously run the agent and return the final answer."""
         # Per-run state to avoid cross-request leakage
         source_map: dict = {}
+
+        # Format system prompt with the actual query and bullet_lines
+        system_prompt = self.system_prompt_template.format(query=query, bullet_lines=self.bullet_lines)
+
         messages = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": system_prompt},
         ]
 
         # Add conversation history if provided
@@ -261,7 +462,7 @@ Always cite sources and provide accurate information from the retrieved chunks.
 
         # Check if we're using Ollama model - use direct Ollama client for better function calling
         if "ollama" in model_name.lower():
-            return await self._run_ollama_direct(messages, model_config, auth, source_map, tool_history)
+            return await self._run_ollama_direct(messages, model_config, auth, source_map, tool_history, display_mode)
 
         while True:
             logger.info(f"Sending completion request with {len(messages)} messages")

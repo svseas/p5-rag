@@ -1022,14 +1022,22 @@ async def agent_query(
     if settings.MODE == "cloud" and auth.user_id:
         await check_and_increment_limits(auth, "agent", 1)
 
-    # Use PydanticAI Vietnamese agent for better Ollama support
-    response = await run_vietnamese_agent(
+    # Use standard MorphikAgent with LiteLLM (testing vLLM Gemma 3 tool calling)
+    response = await morphik_agent.run(
         query=request.query,
-        document_service=document_service,
         auth=auth,
         conversation_history=history,
         display_mode=request.display_mode
     )
+
+    # DISABLED: PydanticAI Vietnamese agent
+    # response = await run_vietnamese_agent(
+    #     query=request.query,
+    #     document_service=document_service,
+    #     auth=auth,
+    #     conversation_history=history,
+    #     display_mode=request.display_mode
+    # )
 
     # Chat history storage
     if history_key:
