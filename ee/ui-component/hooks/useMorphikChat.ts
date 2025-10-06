@@ -3,6 +3,7 @@ import type { UIMessage } from "@/components/chat/ChatMessages";
 import { showAlert } from "@/components/ui/alert-system";
 import { generateUUID } from "@/lib/utils";
 import type { QueryOptions } from "@/components/types";
+import { canAccessWithoutAuth } from "@/lib/connection-utils";
 
 // Cache for chat histories to avoid re-fetching
 const chatHistoryCache = new Map<string, UIMessage[]>();
@@ -144,7 +145,7 @@ export function useMorphikChat({
     use_reranking: initialQueryOptions.use_reranking ?? false,
     use_colpali: initialQueryOptions.use_colpali ?? true,
     padding: initialQueryOptions.padding ?? 0,
-    max_tokens: initialQueryOptions.max_tokens ?? 1024,
+    max_tokens: initialQueryOptions.max_tokens ?? 16000,
     temperature: initialQueryOptions.temperature ?? 0.3,
     graph_name: initialQueryOptions.graph_name,
     folder_name: initialQueryOptions.folder_name,

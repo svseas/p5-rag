@@ -875,13 +875,25 @@ async def get_chat_history(
     """
     history_key = f"chat:{chat_id}"
     stored = await redis.get(history_key)
+
+    # Import clean function
+    from core.completion.litellm_completion import clean_response_content
+
     if not stored:
         db_hist = await document_service.db.get_chat_history(chat_id, auth.user_id, auth.app_id)
         if not db_hist:
             return []
+        # Clean thinking tags from assistant messages in DB history
+        for message in db_hist:
+            if message.get("role") == "assistant" and message.get("content"):
+                message["content"] = clean_response_content(message["content"])
         return [ChatMessage(**m) for m in db_hist]
     try:
         data = json.loads(stored)
+        # Clean thinking tags from assistant messages in Redis history
+        for message in data:
+            if message.get("role") == "assistant" and message.get("content"):
+                message["content"] = clean_response_content(message["content"])
         return [ChatMessage(**m) for m in data]
     except Exception:
         return []

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search } from "lucide-react";
 import { showAlert } from "@/components/ui/alert-system";
+import { canAccessWithoutAuth } from "@/lib/connection-utils";
 import SearchOptionsDialog from "./SearchOptionsDialog";
 import SearchResultCard from "./SearchResultCard";
 import SearchResultCardCarousel from "./SearchResultCardCarousel";
@@ -72,7 +73,7 @@ const SearchSection: React.FC<SearchSectionProps> = ({ apiBaseUrl, authToken, on
       }
     };
 
-    if (authToken || apiBaseUrl.includes("localhost")) {
+    if (authToken || canAccessWithoutAuth(apiBaseUrl)) {
       fetchFolders();
     }
   }, [authToken, apiBaseUrl]);

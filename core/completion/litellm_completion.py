@@ -566,10 +566,15 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         logger.debug(f"Calling LiteLLM streaming with params: {model_params}")
         response = await litellm.acompletion(**model_params)
 
-        # Stream the response chunks
+        # Accumulate response to clean thinking tags
+        full_response = ""
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+                full_response += chunk.choices[0].delta.content
+
+        # Clean and yield the complete response
+        cleaned = clean_response_content(full_response)
+        yield cleaned
 
     async def _handle_streaming_ollama(
         self,
@@ -609,9 +614,15 @@ class LiteLLMCompletionModel(BaseCompletionModel):
                 stream=True,  # Enable streaming
             )
 
+            # Accumulate response to clean thinking tags
+            full_response = ""
             async for chunk in response:
                 if chunk.get("message", {}).get("content"):
-                    yield chunk["message"]["content"]
+                    full_response += chunk["message"]["content"]
+
+            # Clean and yield the complete response
+            cleaned = clean_response_content(full_response)
+            yield cleaned
 
         except Exception as e:
             logger.error(f"Error during direct Ollama streaming call: {e}")

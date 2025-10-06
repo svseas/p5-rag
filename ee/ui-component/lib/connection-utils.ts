@@ -25,6 +25,28 @@ export function isLocalUri(uri: string): boolean {
 }
 
 /**
+ * Check if API requests can be made without authentication token
+ * Returns true for local development environments (localhost, local IPs)
+ */
+export function canAccessWithoutAuth(apiBaseUrl: string): boolean {
+  const url = apiBaseUrl.toLowerCase();
+
+  // Check for localhost and loopback
+  if (url.includes("localhost") || url.includes("127.0.0.1")) {
+    return true;
+  }
+
+  // Check for private network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+  const privateIpPatterns = [
+    /192\.168\.\d+\.\d+/,
+    /10\.\d+\.\d+\.\d+/,
+    /172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+/,
+  ];
+
+  return privateIpPatterns.some(pattern => pattern.test(url));
+}
+
+/**
  * Parse any URI format into connection info
  */
 export function parseConnectionUri(uri: string): ConnectionInfo {

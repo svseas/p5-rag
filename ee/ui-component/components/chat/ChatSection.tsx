@@ -7,6 +7,7 @@ import type { QueryOptions } from "@/components/types";
 import type { UIMessage } from "./ChatMessages";
 import { FolderSummary } from "@/components/types";
 import { useModels } from "@/hooks/useModels";
+import { canAccessWithoutAuth } from "@/lib/connection-utils";
 // import { ModelConfigAPI } from "@/lib/modelConfigApi";
 
 import { Settings, Spin, ArrowUp, Sparkles } from "./icons";
@@ -119,7 +120,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({
   }, [activeChatId, fallbackChatId, setActiveChatId]);
 
   // State for streaming toggle
-  const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [streamingEnabled, setStreamingEnabled] = useState(false);
 
   // State for inline citations toggle
   const [inlineCitationsEnabled, setInlineCitationsEnabled] = useState(true);
@@ -233,7 +234,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({
   // Load agent messages from chat history when switching to agent mode
   useEffect(() => {
     const loadAgentHistory = async () => {
-      if (isAgentMode && chatId && apiBaseUrl && (authToken || apiBaseUrl.includes("localhost"))) {
+      if (isAgentMode && chatId && apiBaseUrl && (authToken || canAccessWithoutAuth(apiBaseUrl))) {
         setAgentHistoryLoading(true);
         try {
           const response = await fetch(`${apiBaseUrl}/chat/${chatId}`, {
@@ -411,7 +412,7 @@ const ChatSection: React.FC<ChatSectionProps> = ({
   useEffect(() => {
     // Define a function to handle data fetching
     const fetchData = async () => {
-      if (authToken || apiBaseUrl.includes("localhost")) {
+      if (authToken || canAccessWithoutAuth(apiBaseUrl)) {
         console.log("ChatSection: Fetching data with auth token:", !!authToken);
         await fetchGraphs();
         await fetchFolders();

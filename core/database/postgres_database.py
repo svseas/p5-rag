@@ -1994,7 +1994,7 @@ class PostgresDatabase(BaseDatabase):
     ) -> bool:
         """Store or update chat history."""
         try:
-            now = datetime.now(UTC).isoformat()
+            now = datetime.now(UTC)
 
             # Auto-generate title from first user message if not provided
             if title is None and history:
@@ -2023,14 +2023,14 @@ class PostgresDatabase(BaseDatabase):
                     text(
                         """
                         INSERT INTO chat_conversations (conversation_id, user_id, app_id, history, title, created_at, updated_at)
-                        VALUES (:cid, :uid, :aid, :hist, :title, CAST(:now AS TEXT), CAST(:now AS TEXT))
+                        VALUES (:cid, :uid, :aid, :hist, :title, :now, :now)
                         ON CONFLICT (conversation_id)
                         DO UPDATE SET
                             user_id = EXCLUDED.user_id,
                             app_id = EXCLUDED.app_id,
                             history = EXCLUDED.history,
                             title = COALESCE(EXCLUDED.title, chat_conversations.title),
-                            updated_at = CAST(:now AS TEXT)
+                            updated_at = :now
                         """
                     ),
                     {

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { AlertCircle, Share2, Plus, Network, Tag, Link, ArrowLeft, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { canAccessWithoutAuth } from "@/lib/connection-utils";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { showAlert } from "@/components/ui/alert-system";
@@ -403,7 +404,7 @@ const GraphSection: React.FC<GraphSectionProps> = ({
   useEffect(() => {
     fetchGraphs();
     // Also fetch documents when component mounts
-    if (authToken || apiBaseUrl.includes("localhost")) {
+    if (authToken || canAccessWithoutAuth(apiBaseUrl)) {
       console.log("GraphSection: Fetching documents with auth token:", !!authToken);
       fetchDocuments();
     }

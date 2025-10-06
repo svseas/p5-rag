@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChatMessage } from "@/components/types";
 import { generateUUID } from "@/lib/utils";
+import { canAccessWithoutAuth } from "@/lib/connection-utils";
 
 import { Spin, ArrowUp } from "./icons";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ const AgentChatSection: React.FC<AgentChatSectionProps> = ({
   // Load agent messages from chat history when component mounts or chatId changes
   useEffect(() => {
     const loadAgentHistory = async () => {
-      if (chatId && apiBaseUrl && (authToken || apiBaseUrl.includes("localhost"))) {
+      if (chatId && apiBaseUrl && (authToken || canAccessWithoutAuth(apiBaseUrl))) {
         try {
           const response = await fetch(`${apiBaseUrl}/chat/${chatId}`, {
             headers: {

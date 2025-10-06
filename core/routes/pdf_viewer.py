@@ -81,6 +81,11 @@ async def get_document_chat_history(
 
     try:
         data = json.loads(stored)
+        # Clean thinking tags from historical assistant messages
+        from core.completion.litellm_completion import clean_response_content
+        for message in data:
+            if message.get("role") == "assistant" and message.get("content"):
+                message["content"] = clean_response_content(message["content"])
         return data
     except Exception as e:
         logger.error(f"Error parsing chat history from Redis: {e}")

@@ -72,8 +72,8 @@ multilingual_e5_large = { model_name = "intfloat/multilingual-e5-large" }
 model = "ollama_qwen_32b" # Qwen3:32b - excellent Vietnamese support and reliable tool calling
 
 [completion]
-model = "ollama_qwen_vision" #"openai_gpt4-1-mini"  # Reference to a key in registered_models
-default_max_tokens = "1000"
+model = "ollama_qwen_32b" #"openai_gpt4-1-mini"  # Reference to a key in registered_models
+default_max_tokens = "16000"
 default_temperature = 0.3
 
 [database]
