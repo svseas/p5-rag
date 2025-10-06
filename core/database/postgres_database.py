@@ -1337,7 +1337,21 @@ class PostgresDatabase(BaseDatabase):
 
                         if system_metadata_filter:
                             # Get document IDs with system filters
-                            system_params = self._build_filter_params(auth, system_filters)
+                            # Note: Only passing system filter params here, not auth params,
+                            # because the document_ids are already scoped by graph access control
+                            system_params = {}
+
+                            # Add system filter parameters manually
+                            self._filter_param_counter = 0
+                            for key, value in system_filters.items():
+                                if key in ["folder_name", "end_user_id", "app_id"]:
+                                    values = value if isinstance(value, list) else [value]
+                                    for item in values:
+                                        if item is not None:
+                                            param_name = f"{key}_{self._filter_param_counter}"
+                                            system_params[param_name] = str(item)
+                                            self._filter_param_counter += 1
+
                             system_params["doc_ids"] = document_ids
                             filter_query = f"""
                                 SELECT external_id FROM documents

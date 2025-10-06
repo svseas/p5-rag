@@ -104,26 +104,7 @@ export function BaseSidebar({
     avatar: userProfile?.avatar || "/assets/placeholder-user.jpg",
   };
 
-  const defaultLogoComponent = (
-    <>
-      <Image
-        src={logoDark || "/morphik-logos/morphik_logo_white_on_transparent_no_text.png"}
-        alt="Morphik Logo"
-        width={24}
-        height={24}
-        className="hidden h-6 w-6 object-contain dark:block"
-        priority
-      />
-      <Image
-        src={logoLight || "/morphik-logos/morphik_logo_black_on_transparent_no_text.png"}
-        alt="Morphik Logo"
-        width={24}
-        height={24}
-        className="block h-6 w-6 object-contain dark:hidden"
-        priority
-      />
-    </>
-  );
+  const defaultLogoComponent = null;
 
   // Auto-expand only on ENTERING chat or settings, not after user collapses
   const prevViewsRef = React.useRef({

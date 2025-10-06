@@ -222,10 +222,18 @@ class GraphService:
         # Initialize with explicitly specified documents, ensuring it's a set
         document_ids = set(additional_documents or [])
 
+        logger.info(f"[GRAPH DEBUG] _get_new_document_ids called with:")
+        logger.info(f"[GRAPH DEBUG]   additional_filters={additional_filters}")
+        logger.info(f"[GRAPH DEBUG]   additional_documents={additional_documents}")
+        logger.info(f"[GRAPH DEBUG]   system_filters={system_filters}")
+        logger.info(f"[GRAPH DEBUG]   existing_graph.filters={existing_graph.filters}")
+
         # Process documents matching additional filters
         if additional_filters or system_filters:
+            logger.info(f"[GRAPH DEBUG] Querying documents with filters={additional_filters}, system_filters={system_filters}")
             filtered_docs = await self.db.get_documents(auth, filters=additional_filters, system_filters=system_filters)
             filter_doc_ids = {doc.external_id for doc in filtered_docs}
+            logger.info(f"[GRAPH DEBUG] Query returned {len(filtered_docs)} documents: {filter_doc_ids}")
             logger.info(f"Found {len(filter_doc_ids)} documents matching additional filters and system filters")
             document_ids.update(filter_doc_ids)
 
@@ -440,8 +448,12 @@ class GraphService:
 
         # If filters were provided, get matching documents
         if filters or system_filters:
+            logger.info(f"[GRAPH DEBUG] create_graph: Querying documents with filters={filters}, system_filters={system_filters}")
             filtered_docs = await self.db.get_documents(auth, filters=filters, system_filters=system_filters)
+            logger.info(f"[GRAPH DEBUG] create_graph: Query returned {len(filtered_docs)} documents")
             document_ids.update(doc.external_id for doc in filtered_docs)
+
+        logger.info(f"[GRAPH DEBUG] create_graph: Total document_ids to process: {document_ids}")
 
         if not document_ids:
             raise ValueError("No documents found matching criteria")
@@ -456,6 +468,8 @@ class GraphService:
         )
 
         # Log for debugging
+        logger.info(f"[GRAPH DEBUG] Graph creation with folder_name={folder_name}, end_user_id={end_user_id}")
+        logger.info(f"[GRAPH DEBUG] Documents retrieved: {len(document_objects)} out of {len(document_ids)} requested")
         logger.info(f"Graph creation with folder_name={folder_name}, end_user_id={end_user_id}")
         logger.info(f"Documents retrieved: {len(document_objects)} out of {len(document_ids)} requested")
         if not document_objects:
@@ -531,8 +545,13 @@ class GraphService:
             for i, _ in enumerate(doc.chunk_ids)
         ]
 
+        logger.info(f"[GRAPH DEBUG] Processing {len(documents)} documents for entity extraction")
+        logger.info(f"[GRAPH DEBUG] Document IDs: {[doc.external_id for doc in documents]}")
+        logger.info(f"[GRAPH DEBUG] Total chunk sources to retrieve: {len(chunk_sources)}")
+
         # Batch retrieve chunks
         chunks = await document_service.batch_retrieve_chunks(chunk_sources, auth)
+        logger.info(f"[GRAPH DEBUG] Retrieved {len(chunks)} chunks for processing")
         logger.info(f"Retrieved {len(chunks)} chunks for processing")
 
         # Process each chunk individually
@@ -808,6 +827,9 @@ class GraphService:
         client = instructor.from_litellm(litellm.acompletion, mode=instructor.Mode.JSON)
         try:
             # Use LiteLLM with instructor for structured completion
+            logger.info(f"[GRAPH DEBUG] Extracting entities from chunk {chunk_number} in doc {doc_id}")
+            logger.info(f"[GRAPH DEBUG] Using model: {model_config.get('model_name')}")
+            logger.info(f"[GRAPH DEBUG] Content preview (first 200 chars): {content_limited[:200]}")
             logger.debug(f"Calling LiteLLM with instructor and params: {model_params}")
             # Extract the model and messages from model_params
             model = model_params.pop("model")
@@ -819,6 +841,7 @@ class GraphService:
 
             try:
 
+                logger.info(f"[GRAPH DEBUG] Extraction completed successfully")
                 logger.info(f"Extraction result type: {type(response)}")
                 extraction_result = response  # The response is already our Pydantic model
 
@@ -902,6 +925,11 @@ class GraphService:
         prompt_overrides: Optional[QueryPromptOverrides] = None,
         folder_name: Optional[Union[str, List[str]]] = None,
         end_user_id: Optional[str] = None,
+        perf_tracker: Optional[Any] = None,
+        stream_response: Optional[bool] = False,
+        llm_config: Optional[Dict[str, Any]] = None,
+        padding: Optional[int] = None,
+        inline_citations: Optional[bool] = True,
     ) -> CompletionResponse:
         """Generate completion using knowledge graph-enhanced retrieval.
 
@@ -1231,7 +1259,12 @@ class GraphService:
     def _combine_chunk_results(
         self, vector_chunks: List[ChunkResult], graph_chunks: List[ChunkResult], k: int
     ) -> List[ChunkResult]:
-        """Combine and deduplicate chunk results from vector search and graph search."""
+        """Combine and deduplicate chunk results from vector search and graph search.
+
+        Returns all merged chunks sorted by score - no truncation to k.
+        The token limit in the completion step will naturally control context size.
+        This ensures important vector search results aren't filtered out by graph chunks.
+        """
         # Create dictionary with vector chunks first
         all_chunks = {f"{chunk.document_id}_{chunk.chunk_number}": chunk for chunk in vector_chunks}
 
@@ -1246,8 +1279,9 @@ class GraphService:
             if chunk_key not in all_chunks or chunk.score > (getattr(all_chunks.get(chunk_key), "score", 0) or 0):
                 all_chunks[chunk_key] = chunk
 
-        # Convert to list, sort by score, and return top k
-        return sorted(all_chunks.values(), key=lambda x: getattr(x, "score", 0), reverse=True)[:k]
+        # Convert to list and sort by score - return ALL chunks (no truncation to k)
+        # Let the token limit control context size instead of artificially limiting here
+        return sorted(all_chunks.values(), key=lambda x: getattr(x, "score", 0), reverse=True)
 
     def _find_relationship_paths(self, graph: Graph, seed_entities: List[Entity], hop_depth: int) -> List[List[str]]:
         """Find meaningful paths in the graph starting from seed entities."""

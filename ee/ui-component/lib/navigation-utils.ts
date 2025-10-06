@@ -85,11 +85,6 @@ export const baseSecondaryNavItems: Omit<BaseNavItem, "type">[] = [
 
 export const externalNavItems = [
   {
-    title: "nav.documentation",
-    url: "https://docs.morphik.ai",
-    icon: IconBook,
-  },
-  {
     title: "nav.sendFeedback",
     url: "mailto:founders@morphik.ai",
     icon: IconMessageCircle,

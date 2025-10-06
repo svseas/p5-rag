@@ -39,6 +39,7 @@ ollama_qwen_vision = { model_name = "ollama_chat/qwen3:8b", api_base = "http://o
 ollama_qwen_32b = { model_name = "ollama_chat/qwen3:32b", api_base = "http://ollama:11434", vision = false }
 
 ollama_llama_vision = { model_name = "ollama_chat/llama3.2-vision", api_base = "http://localhost:11434", vision = true }
+ollama_llama_3_2 = { model_name = "ollama_chat/llama3.2:latest", api_base = "http://ollama:11434", vision = false }
 ollama_llama_8b = { model_name = "ollama_chat/llama3.1:8b", api_base = "http://ollama:11434", vision = false }
 ollama_qwen_1_5b = { model_name = "ollama_chat/qwen2:1.5b", api_base = "http://ollama:11434" }
 
@@ -165,7 +166,7 @@ frontend_url = "http://localhost:3000/api/pdf" # "https://morphik.ai/api/pdf" # 
 model = "gemini_flash"  # Model for workflow extraction tasks
 
 [graph]
-model = "ollama_qwen_vision"
+model = "ollama_llama_3_2"  # Lightweight 2GB model for entity extraction
 enable_entity_resolution = true
 
 # [graph]
