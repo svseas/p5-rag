@@ -452,7 +452,7 @@ class DocumentService:
         else:
             result_creation_start = time.time()
 
-        results = await self._create_chunk_results(auth, chunks)
+        results = await self._create_chunk_results(auth, chunks, folder_name, end_user_id)
 
         if not perf_tracker:
             phase_times["result_creation"] = time.time() - result_creation_start
@@ -961,7 +961,7 @@ class DocumentService:
         logger.debug(f"Sorted {len(chunks)} chunks by score")
 
         # Convert to chunk results
-        results = await self._create_chunk_results(auth, chunks)
+        results = await self._create_chunk_results(auth, chunks, folder_name, end_user_id)
         logger.info(f"Batch retrieved {len(results)} chunks out of {len(chunk_ids)} requested")
         return results
 
@@ -2345,7 +2345,13 @@ class DocumentService:
         logger.debug(f"Chunk IDs stored: {doc.chunk_ids}")
         return doc.chunk_ids
 
-    async def _create_chunk_results(self, auth: AuthContext, chunks: List[DocumentChunk]) -> List[ChunkResult]:
+    async def _create_chunk_results(
+        self,
+        auth: AuthContext,
+        chunks: List[DocumentChunk],
+        folder_name: Optional[Union[str, List[str]]] = None,
+        end_user_id: Optional[str] = None,
+    ) -> List[ChunkResult]:
         """Create ChunkResult objects with document metadata."""
         results = []
         if not chunks:
@@ -2356,7 +2362,7 @@ class DocumentService:
         unique_doc_ids = list({chunk.document_id for chunk in chunks})
 
         # Fetch all required documents in a single batch query
-        docs = await self.batch_retrieve_documents(unique_doc_ids, auth)
+        docs = await self.batch_retrieve_documents(unique_doc_ids, auth, folder_name, end_user_id)
 
         # Create a lookup dictionary of documents by ID
         doc_map = {doc.external_id: doc for doc in docs}
