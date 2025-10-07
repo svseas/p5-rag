@@ -62,48 +62,53 @@ def get_system_message(inline_citations: bool = False, user_query: str = "") -> 
 MANDATORY CITATION RULES:
 - Every fact or piece of information from the context MUST include its source citation
 - Citations appear as "Source: [filename, page X]" or "Source: [filename]" at the end of each context chunk
-- Copy these citations EXACTLY in your response using the format [filename, page X]
+- Copy these citations EXACTLY in your response using the format [filename, page X] or [Document N]
 - Place citations immediately after the relevant information
 
 CRITICAL GROUNDING RULES:
-- ONLY use information explicitly stated in the provided context chunks
+- ONLY use information explicitly stated in the provided documents
 - DO NOT make up, infer, or hallucinate any information
-- If the answer is not in the context, clearly state "I cannot find this information in the provided documents"
-- DO NOT use information from your training data - ONLY use the provided context
-- Quote exact numbers, dates, and facts directly from the context
+- You MUST provide exact quotes from the source documents to support your answer
+- You MUST specify which document number the information came from
+- If the answer is not in the documents, clearly state "I cannot find this information in the provided documents"
+- DO NOT use information from your training data - ONLY use the provided documents
+- Quote exact numbers, dates, and facts directly from the context word-for-word
 
 Your role is to:
-1. Analyze the provided context chunks from documents carefully
-2. Use the context to answer questions accurately with proper citations
-3. Be clear and concise in your answers
-4. ALWAYS include [filename, page X] citations for every piece of information
-5. For image-based queries, analyze the visual content with citations
-6. Format your responses using Markdown
+1. Carefully read each numbered document
+2. Find the answer to the question
+3. Quote the EXACT text from the document (word-for-word) within your answer
+4. Include inline citations [Document N] or [filename, page X] throughout
+5. At the end, provide a structured citation summary
 
 Example response with citations:
-"Morphik is a retrieval-augmented generation tool [README.md, page 1] designed for legal and technical work [overview.pdf, page 3]."
+"The guarantee amount is 693,000,000 VND [Document 1], as stated in the bid guarantee document [contract.pdf, page 2].
 
-Remember: NO information should be presented without its source citation. NO hallucination allowed."""
+---
+Answer: 693,000,000 VND
+Exact quote: \"chúng tôi bảo lãnh cho Nhà thầu bằng một khoản tiền là 693,000,000 VND\"
+Source: Document 1"
+
+Remember: Every factual claim MUST be backed by an exact quote from a specific document. NO information should be presented without verification. NO hallucination allowed."""
     else:
+        # Use SIMPLE format that worked in isolation test (100% success rate)
         content = f"""You are Morphik's powerful query agent.{query_context}
 
 CRITICAL GROUNDING RULES:
-- ONLY use information explicitly stated in the provided context chunks
+- ONLY use information explicitly stated in the provided documents
 - DO NOT make up, infer, or hallucinate any information
-- If the answer is not in the context, clearly state "I cannot find this information in the provided documents"
-- DO NOT use information from your training data - ONLY use the provided context
-- Quote exact numbers, dates, and facts directly from the context
+- You MUST provide exact quotes from the source documents
+- You MUST specify which document number the information came from
+- If the answer is not in the documents, clearly state "I cannot find this information in the provided documents"
+- DO NOT use information from your training data - ONLY use the provided documents
+- Every factual claim MUST be backed by an exact quote from a specific document
 
-Your role is to:
-1. Analyze the provided context chunks from documents carefully
-2. Use the context to answer questions accurately and comprehensively
-3. Be clear and concise in your answers
-4. When relevant, cite specific parts of the context to support your answers
-5. For image-based queries, analyze the visual content in conjunction with any text context provided
-6. Format your responses using Markdown
+Required response format:
+Answer: [your answer]
+Exact quote: "[word-for-word text from the document]"
+Source: Document [number]
 
-Remember: Your primary goal is to provide accurate, context-grounded responses using ONLY the information
-in the provided documents. Never hallucinate or make up information."""
+Remember: If you cannot find an exact quote in the documents to support your answer, you MUST say "I cannot find this information in the provided documents". Never fabricate quotes or information."""
 
     return {
         "role": "system",
@@ -149,6 +154,7 @@ def format_user_content(
     prompt_template: Optional[str] = None,
     inline_citations: bool = False,
     chunk_metadata: Optional[List[Dict[str, Any]]] = None,
+    structured_context: bool = True,
 ) -> str:
     """
     Format the user content based on context and query.
@@ -159,38 +165,55 @@ def format_user_content(
         prompt_template: Optional template to format the content
         inline_citations: Whether to include inline citations
         chunk_metadata: Metadata for each chunk including filename and page
+        structured_context: Whether to add document boundaries and relevance scores
 
     Returns:
         Formatted user content string
     """
-    if inline_citations and chunk_metadata:
-        # Format each chunk with its citation
-        formatted_chunks = []
-        for i, (chunk, metadata) in enumerate(zip(context_text, chunk_metadata)):
+    if not context_text:
+        return query
+
+    # Build formatted chunks with boundaries and citations
+    formatted_chunks = []
+
+    for i, chunk in enumerate(context_text):
+        metadata = chunk_metadata[i] if chunk_metadata and i < len(chunk_metadata) else {}
+
+        # Start document boundary if using structured context
+        if structured_context:
+            score = metadata.get("score", metadata.get("relevance_score", 0.0))
+            doc_header = f"=== DOCUMENT {i + 1} (Relevance Score: {score:.3f}) ==="
+            formatted_chunks.append(doc_header)
+
+        # Add the chunk content
+        formatted_chunks.append(chunk)
+
+        # Add inline citation if enabled
+        if inline_citations and metadata:
             filename = metadata.get("filename", "unknown")
             page = metadata.get("page_number")
             is_colpali = metadata.get("is_colpali", False)
 
             # Build the citation based on available information
             if is_colpali and page:
-                # For ColPali chunks, always show page number since each chunk is a page
                 citation = f"[{filename}, page {page}]"
             elif page:
-                # For regular text chunks with page metadata
                 citation = f"[{filename}, page {page}]"
             else:
-                # For text chunks without page info, just show filename
                 citation = f"[{filename}]"
 
             # Log first few citations for debugging
             if i < 3:
                 logger.debug(f"Citation {i}: {citation} for chunk starting with: {chunk[:50]}...")
 
-            # Make citations more prominent by putting them on a new line
-            formatted_chunks.append(f"{chunk}\nSource: {citation}")
-        context = "\n" + "\n\n".join(formatted_chunks) + "\n\n"
-    else:
-        context = "\n" + "\n\n".join(context_text) + "\n\n" if context_text else ""
+            formatted_chunks.append(f"Source: {citation}")
+
+        # End document boundary if using structured context
+        if structured_context:
+            formatted_chunks.append(f"=== END DOCUMENT {i + 1} ===")
+
+    # Join all formatted chunks
+    context = "\n" + "\n\n".join(formatted_chunks) + "\n\n"
 
     if prompt_template:
         return prompt_template.format(
@@ -199,9 +222,121 @@ def format_user_content(
             query=query,
         )
     elif context_text:
-        return f"Context: {context} Question: {query}"
+        if structured_context:
+            return f"Use the following documents to answer the question. Each document is clearly marked with its relevance score:\n{context}\nQuestion: {query}"
+        else:
+            return f"Context: {context} Question: {query}"
     else:
         return query
+
+
+def parse_structured_citations(response_text: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse structured citations from model response.
+
+    Expected format:
+    ---
+    Answer: [answer]
+    Exact quote: "[quote]"
+    Source: Document [number]
+
+    Args:
+        response_text: The model's response text
+
+    Returns:
+        Dict with {answer, quote, source_document, raw_response} or None if not found
+    """
+    import re
+
+    # Look for the structured section after ---
+    if "---" not in response_text:
+        logger.debug("No structured citation section found (no --- separator)")
+        return None
+
+    # Split on first --- to get structured section
+    parts = response_text.split("---", 1)
+    if len(parts) < 2:
+        return None
+
+    natural_answer = parts[0].strip()
+    structured_section = parts[1].strip()
+
+    # Parse fields using regex
+    answer_match = re.search(r'Answer:\s*(.+?)(?=\n|$)', structured_section, re.IGNORECASE)
+    quote_match = re.search(r'Exact quote:\s*["\'](.+?)["\']', structured_section, re.IGNORECASE | re.DOTALL)
+    source_match = re.search(r'Source:\s*Document\s*(\d+)', structured_section, re.IGNORECASE)
+
+    if not (answer_match and quote_match and source_match):
+        logger.warning(f"Could not parse all citation fields. Found: answer={bool(answer_match)}, quote={bool(quote_match)}, source={bool(source_match)}")
+        return None
+
+    return {
+        "answer": answer_match.group(1).strip(),
+        "quote": quote_match.group(1).strip(),
+        "source_document": int(source_match.group(1)),
+        "natural_answer": natural_answer,
+        "raw_response": response_text,
+    }
+
+
+def verify_quote_in_context(quote: str, context_chunks: List[str], threshold: float = 0.85) -> Dict[str, Any]:
+    """
+    Verify that a claimed quote exists in the provided context chunks.
+
+    Args:
+        quote: The quoted text to verify
+        context_chunks: List of context text chunks
+        threshold: Similarity threshold for fuzzy matching (0-1)
+
+    Returns:
+        Dict with {found: bool, chunk_number: int, confidence: float, matched_text: str}
+    """
+    from difflib import SequenceMatcher
+
+    quote_normalized = quote.lower().strip()
+    best_match = {
+        "found": False,
+        "chunk_number": -1,
+        "confidence": 0.0,
+        "matched_text": ""
+    }
+
+    for i, chunk in enumerate(context_chunks):
+        chunk_normalized = chunk.lower().strip()
+
+        # Exact match check
+        if quote_normalized in chunk_normalized:
+            return {
+                "found": True,
+                "chunk_number": i,
+                "confidence": 1.0,
+                "matched_text": quote,
+            }
+
+        # Fuzzy match check
+        matcher = SequenceMatcher(None, quote_normalized, chunk_normalized)
+        ratio = matcher.ratio()
+
+        if ratio > best_match["confidence"]:
+            best_match["confidence"] = ratio
+            best_match["chunk_number"] = i
+
+            # Find the best matching substring
+            matching_blocks = matcher.get_matching_blocks()
+            if matching_blocks:
+                # Get the largest matching block
+                largest_block = max(matching_blocks, key=lambda x: x.size)
+                start, end = largest_block.b, largest_block.b + largest_block.size
+                best_match["matched_text"] = chunk[start:end]
+
+    # Consider it found if confidence exceeds threshold
+    best_match["found"] = best_match["confidence"] >= threshold
+
+    if not best_match["found"]:
+        logger.warning(f"Quote verification failed. Best match confidence: {best_match['confidence']:.2f} (threshold: {threshold})")
+        logger.warning(f"Claimed quote: {quote[:100]}...")
+
+    return best_match
 
 
 def create_dynamic_model_from_schema(schema: Union[type, Dict]) -> Optional[type]:
@@ -445,10 +580,30 @@ class LiteLLMCompletionModel(BaseCompletionModel):
     ) -> CompletionResponse:
         """Handle standard (non-structured) output generation with Ollama."""
         logger.debug(f"Using direct Ollama client for model: {self.ollama_base_model_name}")
+        logger.debug(f"User content length: {len(user_content)} chars")
+
+        # Log context chunks to see what's being passed
+        if "Context:" in user_content or "## Context" in user_content:
+            logger.warning("=" * 80)
+            logger.warning("FULL USER CONTENT BEING SENT TO MODEL:")
+            logger.warning(user_content)
+            logger.warning("=" * 80)
+
         client = ollama.AsyncClient(host=self.ollama_api_base)
 
         # Construct Ollama messages
-        system_message = {"role": "system", "content": get_system_message(request.inline_citations, request.query)["content"]}
+        system_content = get_system_message(request.inline_citations, request.query)["content"]
+        logger.warning("=" * 80)
+        logger.warning("SYSTEM MESSAGE BEING SENT TO MODEL:")
+        logger.warning(system_content)
+        logger.warning("=" * 80)
+        logger.warning(f"USER QUERY: {request.query}")
+        logger.warning("=" * 80)
+        logger.warning("FULL USER CONTENT BEING SENT TO MODEL:")
+        logger.warning(user_content)
+        logger.warning("=" * 80)
+
+        system_message = {"role": "system", "content": system_content}
         user_message_data = {"role": "user", "content": user_content}
 
         # Add images directly to the user message if available
@@ -458,6 +613,9 @@ class LiteLLMCompletionModel(BaseCompletionModel):
 
         ollama_messages = [system_message] + history_messages + [user_message_data]
 
+        logger.debug(f"Total messages being sent: {len(ollama_messages)}")
+        logger.debug(f"History messages: {len(history_messages)}")
+
         # Construct Ollama options
         options = {
             "temperature": request.temperature,
@@ -466,6 +624,8 @@ class LiteLLMCompletionModel(BaseCompletionModel):
             ),  # Default to model's default if None
         }
 
+        logger.debug(f"Ollama options: {options}")
+
         try:
             response = await client.chat(model=self.ollama_base_model_name, messages=ollama_messages, options=options)
 
@@ -473,14 +633,53 @@ class LiteLLMCompletionModel(BaseCompletionModel):
             prompt_tokens = response.get("prompt_eval_count", 0)
             completion_tokens = response.get("eval_count", 0)
 
+            raw_completion = clean_response_content(response["message"]["content"])
+
+            # Log full model response for debugging
+            logger.warning("=" * 80)
+            logger.warning("FULL MODEL RESPONSE:")
+            logger.warning(raw_completion)
+            logger.warning("=" * 80)
+
+            # Parse and verify structured citations
+            citations = None
+            try:
+                parsed_citations = parse_structured_citations(raw_completion)
+                if parsed_citations:
+                    logger.warning(f"✓ Successfully parsed structured citations")
+                    logger.warning(f"  Answer: {parsed_citations['answer']}")
+                    logger.warning(f"  Quote: {parsed_citations['quote'][:100]}...")
+                    logger.warning(f"  Source: Document {parsed_citations['source_document']}")
+
+                    # Verify quote in context
+                    verification = verify_quote_in_context(parsed_citations["quote"], request.context_chunks)
+
+                    citations = {
+                        **parsed_citations,
+                        "verified": verification["found"],
+                        "verification_confidence": verification["confidence"],
+                        "matched_chunk_number": verification["chunk_number"],
+                    }
+
+                    if not verification["found"]:
+                        logger.warning(f"✗ Quote verification FAILED. Confidence: {verification['confidence']:.2f}")
+                        logger.warning(f"  This indicates the model may have hallucinated!")
+                    else:
+                        logger.warning(f"✓ Quote verified in chunk {verification['chunk_number']} with {verification['confidence']:.2f} confidence")
+                else:
+                    logger.warning("✗ No structured citations found in response - model did not follow required format")
+            except Exception as e:
+                logger.warning(f"Error parsing/verifying citations: {e}")
+
             return CompletionResponse(
-                completion=clean_response_content(response["message"]["content"]),
+                completion=raw_completion,
                 usage={
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
                     "total_tokens": prompt_tokens + completion_tokens,
                 },
-                finish_reason=response.get("done_reason", "unknown"),  # Map done_reason if available
+                finish_reason=response.get("done_reason", "unknown"),
+                citations=citations,
             )
 
         except Exception as e:
@@ -532,14 +731,41 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         logger.debug(f"Calling LiteLLM with params: {model_params}")
         response = await litellm.acompletion(**model_params)
 
+        raw_completion = clean_response_content(response.choices[0].message.content)
+
+        # Parse and verify structured citations
+        citations = None
+        try:
+            parsed_citations = parse_structured_citations(raw_completion)
+            if parsed_citations:
+                logger.debug(f"Successfully parsed structured citations: {parsed_citations['answer'][:50]}...")
+
+                # Verify quote in context
+                verification = verify_quote_in_context(parsed_citations["quote"], request.context_chunks)
+
+                citations = {
+                    **parsed_citations,
+                    "verified": verification["found"],
+                    "verification_confidence": verification["confidence"],
+                    "matched_chunk_number": verification["chunk_number"],
+                }
+
+                if not verification["found"]:
+                    logger.warning(f"Quote verification failed for model response. Confidence: {verification['confidence']:.2f}")
+            else:
+                logger.debug("No structured citations found in response")
+        except Exception as e:
+            logger.warning(f"Error parsing/verifying citations: {e}")
+
         return CompletionResponse(
-            completion=clean_response_content(response.choices[0].message.content),
+            completion=raw_completion,
             usage={
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             },
             finish_reason=response.choices[0].finish_reason,
+            citations=citations,
         )
 
     async def _handle_streaming_litellm(
@@ -674,10 +900,17 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         # Process context chunks and handle images
         context_text, image_urls, ollama_image_data = process_context_chunks(request.context_chunks, is_ollama)
 
-        # Format user content
+        # Format user content with structured context (document boundaries + relevance scores)
+        logger.info(f"Formatting user content: context_chunks={len(context_text)}, chunk_metadata={len(request.chunk_metadata) if request.chunk_metadata else 0}, structured_context=True")
         user_content = format_user_content(
-            context_text, request.query, request.prompt_template, request.inline_citations, request.chunk_metadata
+            context_text,
+            request.query,
+            request.prompt_template,
+            request.inline_citations,
+            request.chunk_metadata,
+            structured_context=True  # Enable document boundaries and relevance scores
         )
+        logger.info(f"Formatted user content preview: {user_content[:200]}...")
 
         if request.inline_citations:
             logger.debug(f"Inline citations enabled - formatted {len(context_text)} chunks with citation metadata")

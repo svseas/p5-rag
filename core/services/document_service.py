@@ -1094,36 +1094,35 @@ class DocumentService:
 
         chunk_contents = [chunk.augmented_content(documents[chunk.document_id]) for chunk in chunks]
 
-        # Collect chunk metadata for inline citations if enabled
-        chunk_metadata = None
-        if inline_citations:
-            chunk_metadata = []
-            for chunk in chunks:
-                # Get the document for this chunk
-                doc = documents.get(chunk.document_id, {})
-                filename = (
-                    chunk.filename or doc.metadata.get("filename", "unknown") if hasattr(doc, "metadata") else "unknown"
-                )
+        # Collect chunk metadata (always - needed for structured context and inline citations)
+        chunk_metadata = []
+        for chunk in chunks:
+            # Get the document for this chunk
+            doc = documents.get(chunk.document_id, {})
+            filename = (
+                chunk.filename or doc.metadata.get("filename", "unknown") if hasattr(doc, "metadata") else "unknown"
+            )
 
-                # Check if this is a ColPali/image chunk
-                is_colpali = chunk.metadata.get("is_image", False)
+            # Check if this is a ColPali/image chunk
+            is_colpali = chunk.metadata.get("is_image", False)
 
-                metadata = {
-                    "filename": filename,
-                    "chunk_number": chunk.chunk_number,
-                    "document_id": chunk.document_id,
-                    "is_colpali": is_colpali,
-                }
+            metadata = {
+                "filename": filename,
+                "chunk_number": chunk.chunk_number,
+                "document_id": chunk.document_id,
+                "is_colpali": is_colpali,
+                "score": chunk.score,  # Add relevance score for structured context
+            }
 
-                # For ColPali chunks, chunk_number corresponds to page number (0-indexed)
-                # Add 1 to make it 1-indexed for user display
-                if is_colpali:
-                    metadata["page_number"] = chunk.chunk_number + 1
-                else:
-                    # For regular text chunks, check if page_number is stored in metadata
-                    metadata["page_number"] = chunk.metadata.get("page_number")
+            # For ColPali chunks, chunk_number corresponds to page number (0-indexed)
+            # Add 1 to make it 1-indexed for user display
+            if is_colpali:
+                metadata["page_number"] = chunk.chunk_number + 1
+            else:
+                # For regular text chunks, check if page_number is stored in metadata
+                metadata["page_number"] = chunk.metadata.get("page_number")
 
-                chunk_metadata.append(metadata)
+            chunk_metadata.append(metadata)
 
         if not perf_tracker:
             phase_times["content_augmentation"] = time.time() - augmentation_start
@@ -1152,13 +1151,19 @@ class DocumentService:
         if prompt_overrides and prompt_overrides.query:
             custom_prompt_template = prompt_overrides.query.prompt_template
 
+        # TEMPORARILY DISABLE structured output to test if it's causing hallucinations
+        # Use CitedAnswer schema by default to enforce citation format and prevent hallucinations
+        # from core.models.completion import CitedAnswer
+        # effective_schema = schema if schema is not None else CitedAnswer
+        effective_schema = schema  # Use only if explicitly provided
+
         request = CompletionRequest(
             query=query,
             context_chunks=chunk_contents,
             max_tokens=max_tokens,
             temperature=temperature,
             prompt_template=custom_prompt_template,
-            schema=schema,
+            schema=effective_schema,
             chat_history=chat_history,
             stream_response=stream_response,
             llm_config=llm_config,
@@ -1170,6 +1175,46 @@ class DocumentService:
 
         if not perf_tracker:
             phase_times["completion_generation"] = time.time() - completion_start
+
+        # Process structured CitedAnswer response if applicable
+        from core.models.completion import CitedAnswer, StructuredCompletion
+        logger.warning(f"Response completion type: {type(response.completion)}")
+        logger.warning(f"Response completion value: {response.completion}")
+
+        # Check if it's a structured response with citation fields
+        is_cited_answer = (
+            isinstance(response.completion, (CitedAnswer, StructuredCompletion)) and
+            hasattr(response.completion, 'answer') and
+            hasattr(response.completion, 'exact_quote') and
+            hasattr(response.completion, 'source_document')
+        )
+
+        if is_cited_answer:
+            cited_answer = response.completion
+
+            # Verify the quote exists in context
+            from core.completion.litellm_completion import verify_quote_in_context
+            verification = verify_quote_in_context(cited_answer.exact_quote, chunk_contents)
+
+            # Store citation information
+            response.citations = {
+                "answer": cited_answer.answer,
+                "quote": cited_answer.exact_quote,
+                "source_document": cited_answer.source_document,
+                "verified": verification["found"],
+                "verification_confidence": verification["confidence"],
+                "matched_chunk_number": verification["chunk_number"],
+            }
+
+            # Log verification result
+            if verification["found"]:
+                logger.info(f"✓ Quote verified in chunk {verification['chunk_number']} (confidence: {verification['confidence']:.2f})")
+            else:
+                logger.warning(f"✗ HALLUCINATION DETECTED: Quote not found in context (best match: {verification['confidence']:.2f})")
+                logger.warning(f"  Claimed quote: {cited_answer.exact_quote[:100]}...")
+
+            # Convert structured response to natural string for backwards compatibility
+            response.completion = cited_answer.answer
 
         # Handle streaming vs non-streaming responses
         if stream_response:

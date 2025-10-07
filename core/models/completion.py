@@ -15,6 +15,14 @@ class StructuredCompletion(BaseModel):
         extra = "allow"  # Allow additional properties
 
 
+class CitedAnswer(BaseModel):
+    """Answer with citation from source documents"""
+
+    answer: str  # The natural language answer to the question
+    exact_quote: str  # Word-for-word quote from the source document
+    source_document: int  # Which document number (1, 2, 3, etc.) the quote came from
+
+
 class ChunkSource(BaseModel):
     """Source information for a chunk used in completion"""
 
@@ -31,6 +39,7 @@ class CompletionResponse(BaseModel):
     finish_reason: Optional[str] = None
     sources: List[ChunkSource] = []
     metadata: Optional[Dict[str, Any]] = None
+    citations: Optional[Dict[str, Any]] = None  # Structured citation info: {answer, quote, source_document, verified}
 
 
 class CompletionRequest(BaseModel):

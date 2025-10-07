@@ -40,7 +40,7 @@ ollama_qwen_32b = { model_name = "ollama_chat/qwen3:32b", api_base = "http://oll
 
 ollama_llama_vision = { model_name = "ollama_chat/llama3.2-vision", api_base = "http://localhost:11434", vision = true }
 ollama_llama_3_2 = { model_name = "ollama_chat/llama3.2:latest", api_base = "http://ollama:11434", vision = false }
-ollama_llama_8b = { model_name = "ollama_chat/llama3.1:8b", api_base = "http://ollama:11434", vision = false }
+ollama_llama3_1_8b = { model_name = "ollama_chat/llama3.1:8b", api_base = "http://ollama:11434", vision = false }
 ollama_qwen_1_5b = { model_name = "ollama_chat/qwen2:1.5b", api_base = "http://ollama:11434" }
 
 # vLLM models (OpenAI-compatible API)
@@ -94,7 +94,7 @@ dimensions = 768
 similarity_metric = "cosine"
 
 [parser]
-chunk_size = 6000
+chunk_size = 512
 chunk_overlap = 300
 use_unstructured_api = false
 use_contextual_chunking = false
@@ -103,7 +103,7 @@ contextual_chunking_model = "ollama_qwen_vision"  # Reference to a key in regist
 # Semantic chunking (preserves table structure and related content)
 use_semantic_chunking = true  # Use Chonkie semantic chunker - keeps tables intact
 semantic_embedding_model = "bkai-foundation-models/vietnamese-bi-encoder"  # Same as document embeddings
-semantic_threshold = 0.7  # Similarity threshold (0-1) for grouping content
+semantic_threshold = 0.3  # Similarity threshold (0-1) for grouping content
 
 # Marker PDF parser (vision-based, better for tables/complex layouts)
 use_marker = true  # Enable Marker for PDFs with tables/complex layouts
@@ -129,7 +129,7 @@ model_name = "BAAI/bge-reranker-large"
 query_max_length = 256
 passage_max_length = 512
 use_fp16 = true
-device = "mps" # use "cpu" if on docker and using a mac, "cuda" if cuda enabled device
+device = "cuda" # use "cpu" if on docker and using a mac, "cuda" if cuda enabled device
 
 [storage]
 provider = "local"
@@ -152,12 +152,12 @@ model = "ollama_qwen_vision"
 batch_size = 4096
 
 [morphik]
-enable_colpali = true
+enable_colpali = false  # Temporarily disabled due to FlashAttention2 requirement
 mode = "self_hosted"  # "cloud" or "self_hosted"
 api_domain = "api.morphik.ai"  # API domain for cloud URIs
 # Only call the embedding API if colpali_mode is "api"
 morphik_embedding_api_domain = "http://localhost:6000"  # endpoint for multivector embedding service
-colpali_mode = "local" # "off", "local", or "api"
+colpali_mode = "off" # "off", "local", or "api"
 
 [pdf_viewer]
 frontend_url = "http://localhost:3000/api/pdf" # "https://morphik.ai/api/pdf" # "http://localhost:3000/api/pdf" # "https://morphik.ai/api/pdf"

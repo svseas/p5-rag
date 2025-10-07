@@ -53,6 +53,13 @@ services:
       - morphik-network
     env_file:
       - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   worker:
     build:
@@ -143,58 +150,58 @@ services:
               count: all
               capabilities: [gpu]
 
-  vllm:
-    image: vllm/vllm-openai:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - /home/aidontknow/512gdrive:/models
-    command: >
-      --model /models/gemma-3-12b-it
-      --host 0.0.0.0
-      --port 8080
-      --quantization bitsandbytes
-      --load-format bitsandbytes
-      --max-model-len 32768
-      --enable-auto-tool-choice
-      --tool-call-parser pythonic
-      --guided-decoding-backend outlines
-      --gpu-memory-utilization 0.85
-      --max-num-seqs=8
-    networks:
-      - morphik-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - /home/aidontknow/512gdrive:/models
+  #   command: >
+  #     --model /models/gemma-3-12b-it
+  #     --host 0.0.0.0
+  #     --port 8080
+  #     --quantization bitsandbytes
+  #     --load-format bitsandbytes
+  #     --max-model-len 32768
+  #     --enable-auto-tool-choice
+  #     --tool-call-parser pythonic
+  #     --guided-decoding-backend outlines
+  #     --gpu-memory-utilization 0.85
+  #     --max-num-seqs=8
+  #   networks:
+  #     - morphik-network
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
 
-  vllm-viqwen:
-    image: vllm/vllm-openai:latest
-    ports:
-      - "8081:8081"
-    volumes:
-      - /home/aidontknow/vLLM/models:/models
-    command: >
-      --model /models/vi-qwen2-7b-rag
-      --host 0.0.0.0
-      --port 8081
-      --max-model-len 32768
-      --gpu-memory-utilization 0.90
-      --no-enable-prefix-caching
-      --kv-cache-dtype=fp8
-      --max-num-seqs=16
-    networks:
-      - morphik-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+  # vllm-viqwen:
+  #   image: vllm/vllm-openai:latest
+  #   ports:
+  #     - "8081:8081"
+  #   volumes:
+  #     - /home/aidontknow/vLLM/models:/models
+  #   command: >
+  #     --model /models/vi-qwen2-7b-rag
+  #     --host 0.0.0.0
+  #     --port 8081
+  #     --max-model-len 32768
+  #     --gpu-memory-utilization 0.90
+  #     --no-enable-prefix-caching
+  #     --kv-cache-dtype=fp8
+  #     --max-num-seqs=16
+  #   networks:
+  #     - morphik-network
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
 
 networks:
   morphik-network:
