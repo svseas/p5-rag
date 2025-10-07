@@ -46,17 +46,31 @@ from .base_completion import BaseCompletionModel
 logger = logging.getLogger(__name__)
 
 
-def get_system_message(inline_citations: bool = False) -> Dict[str, str]:
-    """Return the standard system message for Morphik's query agent."""
+def get_system_message(inline_citations: bool = False, user_query: str = "") -> Dict[str, str]:
+    """Return the standard system message for Morphik's query agent.
+
+    Args:
+        inline_citations: Whether to enable inline citation mode
+        user_query: The user's query to include in system prompt for better focus
+    """
+
+    query_context = f"\n\nUSER'S QUESTION: {user_query}\n" if user_query else ""
 
     if inline_citations:
-        content = """You are Morphik's powerful query agent with INLINE CITATION MODE ENABLED.
+        content = f"""You are Morphik's powerful query agent with INLINE CITATION MODE ENABLED.{query_context}
 
 MANDATORY CITATION RULES:
 - Every fact or piece of information from the context MUST include its source citation
 - Citations appear as "Source: [filename, page X]" or "Source: [filename]" at the end of each context chunk
 - Copy these citations EXACTLY in your response using the format [filename, page X]
 - Place citations immediately after the relevant information
+
+CRITICAL GROUNDING RULES:
+- ONLY use information explicitly stated in the provided context chunks
+- DO NOT make up, infer, or hallucinate any information
+- If the answer is not in the context, clearly state "I cannot find this information in the provided documents"
+- DO NOT use information from your training data - ONLY use the provided context
+- Quote exact numbers, dates, and facts directly from the context
 
 Your role is to:
 1. Analyze the provided context chunks from documents carefully
@@ -69,19 +83,27 @@ Your role is to:
 Example response with citations:
 "Morphik is a retrieval-augmented generation tool [README.md, page 1] designed for legal and technical work [overview.pdf, page 3]."
 
-Remember: NO information should be presented without its source citation."""
+Remember: NO information should be presented without its source citation. NO hallucination allowed."""
     else:
-        content = """You are Morphik's powerful query agent. Your role is to:
+        content = f"""You are Morphik's powerful query agent.{query_context}
 
+CRITICAL GROUNDING RULES:
+- ONLY use information explicitly stated in the provided context chunks
+- DO NOT make up, infer, or hallucinate any information
+- If the answer is not in the context, clearly state "I cannot find this information in the provided documents"
+- DO NOT use information from your training data - ONLY use the provided context
+- Quote exact numbers, dates, and facts directly from the context
+
+Your role is to:
 1. Analyze the provided context chunks from documents carefully
 2. Use the context to answer questions accurately and comprehensively
 3. Be clear and concise in your answers
 4. When relevant, cite specific parts of the context to support your answers
 5. For image-based queries, analyze the visual content in conjunction with any text context provided
-6. Format your responses using Markdown.
+6. Format your responses using Markdown
 
-Remember: Your primary goal is to provide accurate, context-aware responses that help users understand
-and utilize the information in their documents effectively."""
+Remember: Your primary goal is to provide accurate, context-grounded responses using ONLY the information
+in the provided documents. Never hallucinate or make up information."""
 
     return {
         "role": "system",
@@ -426,7 +448,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         client = ollama.AsyncClient(host=self.ollama_api_base)
 
         # Construct Ollama messages
-        system_message = {"role": "system", "content": get_system_message(request.inline_citations)["content"]}
+        system_message = {"role": "system", "content": get_system_message(request.inline_citations, request.query)["content"]}
         user_message_data = {"role": "user", "content": user_content}
 
         # Add images directly to the user message if available
@@ -491,7 +513,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         # LiteLLM uses list content format
         user_message = {"role": "user", "content": content_list}
         # Use the system prompt defined earlier
-        litellm_messages = [get_system_message(request.inline_citations)] + history_messages + [user_message]
+        litellm_messages = [get_system_message(request.inline_citations, request.query)] + history_messages + [user_message]
 
         # Prepare LiteLLM parameters
         model_params = {
@@ -546,7 +568,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         # LiteLLM uses list content format
         user_message = {"role": "user", "content": content_list}
         # Use the system prompt defined earlier
-        litellm_messages = [get_system_message(request.inline_citations)] + history_messages + [user_message]
+        litellm_messages = [get_system_message(request.inline_citations, request.query)] + history_messages + [user_message]
 
         # Prepare LiteLLM parameters
         model_params = {
@@ -588,7 +610,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
         client = ollama.AsyncClient(host=self.ollama_api_base)
 
         # Construct Ollama messages
-        system_message = {"role": "system", "content": get_system_message(request.inline_citations)["content"]}
+        system_message = {"role": "system", "content": get_system_message(request.inline_citations, request.query)["content"]}
         user_message_data = {"role": "user", "content": user_content}
 
         # Add images directly to the user message if available
@@ -692,7 +714,7 @@ class LiteLLMCompletionModel(BaseCompletionModel):
                 # Create system and user messages with enhanced instructions for structured output
                 system_message = {
                     "role": "system",
-                    "content": get_system_message(request.inline_citations)["content"]
+                    "content": get_system_message(request.inline_citations, request.query)["content"]
                     + "\n\nYou MUST format your response according to the required schema.",
                 }
 
